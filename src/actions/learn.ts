@@ -66,7 +66,7 @@ export async function generateLesson(word: string, contextFullText: string) {
         `;
 
         const completion = await openai.chat.completions.create({
-            model: "gpt-4.1-nano-2025-04-14",
+            model: "gpt-5-nano-2025-08-07",
             messages: [
                 { role: "system", content: "You are a helpful Japanese language tutor. You always response in valid JSON." },
                 { role: "user", content: prompt }
