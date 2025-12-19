@@ -82,5 +82,43 @@ export function useAuth() {
         router.refresh();
     };
 
-    return { signInWithGoogle, signUp, signIn, signOut, isLoading, error };
+    const resetPassword = async (email: string) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+            });
+            if (error) throw error;
+            alert("Password reset link sent to your email!");
+            return true;
+        } catch (err: any) {
+            console.error("Reset Password Exception:", err);
+            setError(err.message);
+            return false;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const updatePassword = async (password: string) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const { error } = await supabase.auth.updateUser({ password });
+            if (error) throw error;
+            alert("Password updated successfully!");
+            router.push("/");
+            router.refresh();
+            return true;
+        } catch (err: any) {
+            console.error("Update Password Exception:", err);
+            setError(err.message);
+            return false;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return { signInWithGoogle, signUp, signIn, signOut, resetPassword, updatePassword, isLoading, error };
 }

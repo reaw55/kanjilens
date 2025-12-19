@@ -7,14 +7,18 @@ import { Input } from "@/components/ui/input";
 import { useState } from "react";
 
 export default function LoginPage() {
-    const { signIn, signUp, isLoading, error } = useAuth();
+    const { signIn, signUp, resetPassword, isLoading, error } = useAuth();
     const [isSignUp, setIsSignUp] = useState(false);
+    const [isForgot, setIsForgot] = useState(false);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isSignUp) {
+        if (isForgot) {
+            const success = await resetPassword(email);
+            if (success) setIsForgot(false);
+        } else if (isSignUp) {
             signUp(email, password);
         } else {
             signIn(email, password);
@@ -33,7 +37,11 @@ export default function LoginPage() {
                         KanjiLens
                     </h1>
                     <p className="text-zinc-400">
-                        {isSignUp ? "Create an account to get started" : "Sign in to sync your progress"}
+                        {isForgot
+                            ? "Reset your password"
+                            : isSignUp
+                                ? "Create an account to get started"
+                                : "Sign in to sync your progress"}
                     </p>
                 </div>
 
@@ -54,16 +62,18 @@ export default function LoginPage() {
                             required
                             disabled={isLoading}
                         />
-                        <Input
-                            type="password"
-                            placeholder="Password"
-                            className="input-premium"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            minLength={6}
-                            disabled={isLoading}
-                        />
+                        {!isForgot && (
+                            <Input
+                                type="password"
+                                placeholder="Password"
+                                className="input-premium"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                                minLength={6}
+                                disabled={isLoading}
+                            />
+                        )}
                     </div>
 
                     <Button
@@ -73,22 +83,40 @@ export default function LoginPage() {
                     >
                         {isLoading
                             ? "Processing..."
-                            : isSignUp
-                                ? "Create Account"
-                                : "Sign In"}
+                            : isForgot
+                                ? "Send Reset Link"
+                                : isSignUp
+                                    ? "Create Account"
+                                    : "Sign In"}
                     </Button>
                 </form>
 
-                <div className="text-center">
+                <div className="text-center space-y-2">
+                    {!isForgot && !isSignUp && (
+                        <button
+                            type="button"
+                            onClick={() => setIsForgot(true)}
+                            className="text-xs text-zinc-500 hover:text-amber-500 transition-colors block w-full"
+                            disabled={isLoading}
+                        >
+                            Forgot your password?
+                        </button>
+                    )}
+
                     <button
                         type="button"
-                        onClick={() => setIsSignUp(!isSignUp)}
+                        onClick={() => {
+                            setIsForgot(false);
+                            setIsSignUp(!isSignUp);
+                        }}
                         className="text-sm text-zinc-400 hover:text-amber-500 transition-colors"
                         disabled={isLoading}
                     >
-                        {isSignUp
-                            ? "Already have an account? Sign In"
-                            : "Don't have an account? Sign Up"}
+                        {isForgot
+                            ? "Back to Sign In"
+                            : isSignUp
+                                ? "Already have an account? Sign In"
+                                : "Don't have an account? Sign Up"}
                     </button>
                 </div>
             </div>
