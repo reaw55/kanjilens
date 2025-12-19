@@ -103,8 +103,8 @@ export default function MapView() {
                             const cap = group[0];
                             const imageIcon = L.divIcon({
                                 className: '!bg-transparent !border-0',
-                                html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800 group hover:scale-110 transition-transform">
-                                         <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800 group hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
+                                         <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
                                        </div>`,
                                 iconSize: [48, 48],
                                 iconAnchor: [24, 24]
@@ -127,8 +127,8 @@ export default function MapView() {
 
                                 const imageIcon = L.divIcon({
                                     className: '!bg-transparent !border-0',
-                                    html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-500 shadow-xl bg-zinc-800 z-10 hover:scale-110 transition-transform">
-                                              <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                    html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-500 shadow-xl bg-zinc-800 z-10 hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
+                                              <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
                                                <div class="absolute -top-1 -right-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded-full border border-white">
                                                   ${i + 1}
                                                </div>
