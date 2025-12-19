@@ -25,11 +25,10 @@ export async function GET(request: Request) {
             }
         } else {
             console.error("Session exchange error:", error);
+            return NextResponse.redirect(`${origin}/auth/auth-code-error?error=${encodeURIComponent(error.message)}`);
         }
     } else {
         console.warn("No Auth Code found in callback URL");
+        return NextResponse.redirect(`${origin}/auth/auth-code-error?error=${encodeURIComponent("No auth code found")}`);
     }
-
-    // return the user to an error page with instructions
-    return NextResponse.redirect(`${origin}/auth/auth-code-error`);
 }

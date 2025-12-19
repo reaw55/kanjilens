@@ -21,13 +21,26 @@ const icon = L.icon({
 });
 
 // Custom component to update map view
-function MapUpdater({ center }: { center: [number, number] | null }) {
+function MapUpdater({ center, captures }: { center: [number, number] | null, captures: any[] }) {
     const map = useMap();
+
     useEffect(() => {
-        if (center) {
+        if (captures.length > 0) {
+            // Create bounds from all capture locations
+            const points = captures.map(c => [c.geo_lat, c.geo_lng] as [number, number]);
+            const bounds = L.latLngBounds(points);
+
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, {
+                    padding: [50, 50],
+                    maxZoom: 15
+                });
+            }
+        } else if (center) {
             map.setView(center, 13);
         }
-    }, [center, map]);
+    }, [center, captures, map]);
+
     return null;
 }
 
@@ -70,7 +83,7 @@ export default function MapView() {
                     url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                 />
 
-                <MapUpdater center={userLocation} />
+                <MapUpdater center={userLocation} captures={captures} />
 
                 {captures.map(cap => {
                     const imageIcon = L.divIcon({
