@@ -1,0 +1,186 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import dynamic from "next/dynamic";
+import { CameraCapture } from "@/components/camera-capture";
+import { RecentCapturesList } from "@/components/recent-captures";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+
+// Dynamically import MapView to avoid SSR issues with Leaflet
+const MapView = dynamic(() => import("@/components/map-view"), {
+    ssr: false,
+    loading: () => <div className="h-full w-full bg-zinc-950 animate-pulse" />
+});
+
+type HomeClientProps = {
+    user: any;
+    profile: any;
+    stats: {
+        currentLevel: number;
+        nextXP: number;
+        percent: number;
+    };
+    dueCount: number;
+    capturesCount: number;
+};
+
+type ViewMode = 'map' | 'scan' | 'dashboard';
+
+export function HomeClient({ user, profile, stats, dueCount, capturesCount }: HomeClientProps) {
+    // Default to Map if user has captures, otherwise Dashboard (to prompt first scan)
+    const [viewMode, setViewMode] = useState<ViewMode>(
+        capturesCount > 0 ? 'map' : 'dashboard'
+    );
+
+    return (
+        <div className="relative h-[100dvh] w-full overflow-hidden bg-zinc-950 text-zinc-50">
+            {/* 1. Underlying Map Layer (Always mounted to preserve state) */}
+            <div className={cn(
+                "absolute inset-0 z-0 transition-opacity duration-500",
+                viewMode === 'map' ? "opacity-100" : "opacity-20 pointer-events-none"
+            )}>
+                <MapView />
+            </div>
+
+            {/* 2. Top Bar (Floating Profile Stats) */}
+            <div className="absolute top-0 left-0 right-0 z-40 p-4 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
+                <div className="max-w-md mx-auto flex justify-between items-start pointer-events-auto">
+                    {/* Level/XP Pill */}
+                    <div className="bg-zinc-900/80 backdrop-blur-md rounded-2xl p-3 border border-zinc-800 shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-500">
+                        <div className="relative">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center font-bold text-zinc-950 ring-2 ring-zinc-900">
+                                {stats.currentLevel}
+                            </div>
+                            <div className="absolute -bottom-1 -right-1 bg-zinc-900 rounded-full px-1.5 py-0.5 border border-zinc-800">
+                                <span className="text-[8px] font-bold text-amber-500">LVL</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
+                                <span>{(profile?.xp || 0).toLocaleString()} XP</span>
+                            </div>
+                            {/* Mini Progress Bar */}
+                            <div className="w-24 h-1.5 bg-zinc-800 rounded-full mt-1 overflow-hidden">
+                                <div
+                                    className="h-full bg-amber-500 rounded-full transition-all duration-1000"
+                                    style={{ width: `${stats.percent}%` }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Streak Badge */}
+                    <div className="bg-zinc-900/80 backdrop-blur-md rounded-xl p-2 border border-zinc-800 shadow-xl flex flex-col items-center min-w-[3rem]">
+                        <span className="material-symbols-rounded text-amber-500 text-xl">bolt</span>
+                        <span className="text-xs font-bold text-white">{profile?.streak || 0}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Main Content Area (Overlay) */}
+            <main className="absolute inset-0 z-10 flex flex-col pt-24 pb-32 overflow-y-auto overflow-x-hidden no-scrollbar pointer-events-none">
+
+                {/* SCAN MODE */}
+                <div className={cn(
+                    "flex-1 flex flex-col items-center justify-center transition-all duration-300 pointer-events-auto",
+                    viewMode === 'scan' ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none hidden"
+                )}>
+                    <CameraCapture />
+                </div>
+
+                {/* DASHBOARD MODE */}
+                <div className={cn(
+                    "flex-1 px-4 transition-all duration-300 space-y-6 max-w-md mx-auto w-full pointer-events-auto",
+                    viewMode === 'dashboard' ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none hidden"
+                )}>
+                    {/* Review Card */}
+                    <Link href="/quiz" className="block group w-full">
+                        <div className="bg-zinc-900/90 backdrop-blur-xl rounded-3xl p-6 border border-zinc-800 shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10">
+                                <span className="material-symbols-rounded text-6xl">school</span>
+                            </div>
+                            <div className="relative z-10">
+                                <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2">Study Due</div>
+                                <div className="text-4xl font-bold text-white flex items-baseline gap-2">
+                                    {dueCount} <span className="text-sm font-medium text-zinc-500">cards</span>
+                                </div>
+                                {dueCount > 0 && (
+                                    <div className="mt-4 inline-flex items-center gap-2 text-amber-500 text-sm font-bold">
+                                        <span>Start Session</span>
+                                        <span className="material-symbols-rounded text-base">arrow_forward</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </Link>
+
+                    {/* Recent Activity */}
+                    <div className="bg-zinc-900/90 backdrop-blur-xl rounded-3xl p-6 border border-zinc-800 shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="material-symbols-rounded text-amber-500">history</span>
+                            Recent Scans
+                        </h3>
+                        <RecentCapturesList userId={user.id} />
+                    </div>
+                </div>
+
+                {/* MAP MODE (Content is handled by the background MapView, just controls overlay visibility) */}
+                {viewMode === 'map' && (
+                    <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur-md px-4 py-2 rounded-full border border-zinc-800 text-xs text-zinc-400">
+                        {capturesCount} locations discovered
+                    </div>
+                )}
+
+            </main>
+
+            {/* 4. Bottom Navigation Bar */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
+                <nav className="bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl p-2 flex justify-between items-center relative">
+
+                    {/* Map Tab */}
+                    <button
+                        onClick={() => setViewMode('map')}
+                        className={cn(
+                            "flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200",
+                            viewMode === 'map' ? "text-amber-500 bg-white/5" : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                    >
+                        <span className={cn("material-symbols-rounded text-2xl", viewMode === 'map' && "fill-icon")}>map</span>
+                        <span className="text-[10px] font-medium">Map</span>
+                    </button>
+
+                    {/* Scan Trigger (Center FAB) */}
+                    <div className="relative -mt-8 mx-2">
+                        <button
+                            onClick={() => setViewMode('scan')}
+                            className={cn(
+                                "h-16 w-16 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/20 transition-all duration-300 border-4 border-zinc-900",
+                                viewMode === 'scan'
+                                    ? "bg-amber-500 text-zinc-900 rotate-0"
+                                    : "bg-zinc-800 text-white hover:bg-zinc-700 hover:scale-105"
+                            )}
+                        >
+                            <span className="material-symbols-rounded text-3xl">photo_camera</span>
+                        </button>
+                    </div>
+
+                    {/* Dashboard Tab */}
+                    <button
+                        onClick={() => setViewMode('dashboard')}
+                        className={cn(
+                            "flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200",
+                            viewMode === 'dashboard' ? "text-amber-500 bg-white/5" : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                    >
+                        <span className={cn("material-symbols-rounded text-2xl", viewMode === 'dashboard' && "fill-icon")}>grid_view</span>
+                        <span className="text-[10px] font-medium">Home</span>
+                    </button>
+
+                </nav>
+            </div>
+        </div>
+    );
+}

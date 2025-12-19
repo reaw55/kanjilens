@@ -1,10 +1,10 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polygon } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { createClient } from "@/utils/supabase/client";
@@ -72,6 +72,7 @@ export default function MapView() {
     return (
         <div className="h-screen w-full relative z-0">
             <MapContainer
+                key="kanjilens-map"
                 center={centerPosition}
                 zoom={13}
                 scrollWheelZoom={true}
@@ -85,27 +86,75 @@ export default function MapView() {
 
                 <MapUpdater center={userLocation} captures={captures} />
 
-                {captures.map(cap => {
-                    const imageIcon = L.divIcon({
-                        className: '!bg-transparent !border-0',
-                        html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800">
-                                 <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
-                               </div>`,
-                        iconSize: [48, 48],
-                        iconAnchor: [24, 24]
+                {/* Render markers with Jitter for overlaps */}
+                {(() => {
+                    // 1. Group by location (to 4 decimal places to catch close ones)
+                    const groups: Record<string, any[]> = {};
+                    captures.forEach(cap => {
+                        const key = `${cap.geo_lat.toFixed(4)},${cap.geo_lng.toFixed(4)}`;
+                        if (!groups[key]) groups[key] = [];
+                        groups[key].push(cap);
                     });
 
-                    return (
-                        <Marker
-                            key={cap.id}
-                            position={[cap.geo_lat, cap.geo_lng]}
-                            icon={imageIcon}
-                            eventHandlers={{
-                                click: () => setSelectedCapture(cap)
-                            }}
-                        />
-                    );
-                })}
+                    // 2. Render all
+                    return Object.values(groups).flatMap((group) => {
+                        if (group.length === 1) {
+                            // Single marker, no change
+                            const cap = group[0];
+                            const imageIcon = L.divIcon({
+                                className: '!bg-transparent !border-0',
+                                html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800 group hover:scale-110 transition-transform">
+                                         <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                       </div>`,
+                                iconSize: [48, 48],
+                                iconAnchor: [24, 24]
+                            });
+                            return (
+                                <Marker
+                                    key={cap.id}
+                                    position={[cap.geo_lat, cap.geo_lng]}
+                                    icon={imageIcon}
+                                    eventHandlers={{ click: () => setSelectedCapture(cap) }}
+                                />
+                            );
+                        } else {
+                            // Multiple markers, apply spiral/circle jitter
+                            return group.map((cap, i) => {
+                                const angle = (i / group.length) * 2 * Math.PI;
+                                const radius = 0.0003; // Approx 30 meters
+                                const lat = cap.geo_lat + (radius * Math.cos(angle));
+                                const lng = cap.geo_lng + (radius * Math.sin(angle));
+
+                                const imageIcon = L.divIcon({
+                                    className: '!bg-transparent !border-0',
+                                    html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-500 shadow-xl bg-zinc-800 z-10 hover:scale-110 transition-transform">
+                                              <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                               <div class="absolute -top-1 -right-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded-full border border-white">
+                                                  ${i + 1}
+                                               </div>
+                                            </div>`,
+                                    iconSize: [48, 48],
+                                    iconAnchor: [24, 24]
+                                });
+
+                                return (
+                                    <React.Fragment key={cap.id}>
+                                        {/* Line to center */}
+                                        <Polygon
+                                            positions={[[cap.geo_lat, cap.geo_lng], [lat, lng]]}
+                                            pathOptions={{ color: 'white', weight: 2, opacity: 0.5, dashArray: '4' }}
+                                        />
+                                        <Marker
+                                            position={[lat, lng]}
+                                            icon={imageIcon}
+                                            eventHandlers={{ click: () => setSelectedCapture(cap) }}
+                                        />
+                                    </React.Fragment>
+                                );
+                            });
+                        }
+                    });
+                })()}
             </MapContainer>
 
             {/* Simple Lightbox Modal */}

@@ -1,16 +1,34 @@
-import { createClient } from "@/utils/supabase/server";
+"use client";
+
+import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
-export async function RecentCapturesList({ userId }: { userId: string }) {
-    const supabase = await createClient();
-    const { data: captures } = await supabase
-        .from("captures")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(3);
+export function RecentCapturesList({ userId }: { userId: string }) {
+    const [captures, setCaptures] = useState<any[] | null>(null);
 
-    if (!captures || captures.length === 0) {
+    useEffect(() => {
+        const supabase = createClient();
+        async function fetchCaptures() {
+            const { data } = await supabase
+                .from("captures")
+                .select("*")
+                .eq("user_id", userId)
+                .order("created_at", { ascending: false })
+                .limit(3);
+            setCaptures(data);
+        }
+        fetchCaptures();
+    }, [userId]);
+
+    if (captures === null) return (
+        <div className="space-y-3 animate-pulse">
+            <div className="h-16 bg-zinc-800 rounded-2xl"></div>
+            <div className="h-16 bg-zinc-800 rounded-2xl"></div>
+        </div>
+    );
+
+    if (captures.length === 0) {
         return (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center border-dashed">
                 <p className="text-zinc-600 text-sm">No scans yet. Try the camera!</p>
@@ -19,7 +37,7 @@ export async function RecentCapturesList({ userId }: { userId: string }) {
     }
 
     return (
-        <>
+        <div className="space-y-3">
             {captures.map((capture) => (
                 <Link href={`/scan/${capture.id}`} key={capture.id} className="block group">
                     <div className="flex items-center gap-4 bg-zinc-800/50 p-3 rounded-2xl border border-zinc-700/50 hover:bg-zinc-800 transition-colors">
@@ -38,6 +56,6 @@ export async function RecentCapturesList({ userId }: { userId: string }) {
                     </div>
                 </Link>
             ))}
-        </>
+        </div>
     );
 }
