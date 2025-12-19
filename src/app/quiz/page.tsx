@@ -1,128 +1,202 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
-// Removed unused framer-motion import
-// Actually, package.json check implies looking at file. I saw package.json earlier, I don't recall framer-motion being there. 
-// I'll stick to CSS transitions/Tailwind to be safe and avoid "Module not found".
-
-import { submitReview } from "@/actions/quiz";
+import { getQuizData, submitQuizResult } from "@/actions/quiz";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+type QuizItem = {
+    id: string;
+    kanji_word: string;
+    reading_kana: string;
+    meaning_en: string;
+    srs_level: number;
+};
 
 export default function QuizPage() {
-    const [items, setItems] = useState<any[]>([]);
+    const [items, setItems] = useState<QuizItem[]>([]);
+    const [distractors, setDistractors] = useState<QuizItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [isFlipped, setIsFlipped] = useState(false);
+    const [quizMode, setQuizMode] = useState<'kanji-to-en' | 'en-to-kanji'>('kanji-to-en');
+    const [options, setOptions] = useState<QuizItem[]>([]);
+    const [selectedOption, setSelectedOption] = useState<string | null>(null);
+    const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+    const [sessionXP, setSessionXP] = useState(0);
     const [finished, setFinished] = useState(false);
 
+    // Load Data
     useEffect(() => {
-        const supabase = createClient();
-        async function fetchReviews() {
-            const now = new Date().toISOString();
-            const { data } = await supabase
-                .from("vocabulary_items")
-                .select("*")
-                .lte("next_review_at", now) // Due items
-                .order("next_review_at", { ascending: true })
-                .limit(20);
-
-            if (data) setItems(data);
+        async function init() {
+            const data = await getQuizData();
+            setItems(data.items);
+            setDistractors(data.distractors);
             setLoading(false);
         }
-        fetchReviews();
+        init();
     }, []);
 
-    const handleGrade = async (quality: 'forgot' | 'hard' | 'easy') => {
+    // Setup new question
+    useEffect(() => {
+        if (loading || items.length === 0 || currentIndex >= items.length) return;
+
         const currentItem = items[currentIndex];
-        // Optimistic update / Move to next
-        const nextIdx = currentIndex + 1;
 
-        // Submit in background
-        await submitReview(currentItem.id, quality);
+        // Randomly decide mode for this card
+        const mode = Math.random() > 0.5 ? 'kanji-to-en' : 'en-to-kanji';
+        setQuizMode(mode);
 
-        setIsFlipped(false);
+        // Generate Options
+        const otherOptions = distractors
+            .filter(d => d.id !== currentItem.id)
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 3);
 
-        if (nextIdx >= items.length) {
-            setFinished(true);
-        } else {
-            setCurrentIndex(nextIdx);
+        // If we don't have enough distractors, just use what we have (or duplicate logic if needed)
+        // For MVP, if < 3 distractors, this might look weird, but it works.
+
+        const allOptions = [...otherOptions, currentItem].sort(() => 0.5 - Math.random());
+        setOptions(allOptions);
+        setSelectedOption(null);
+        setIsCorrect(null);
+
+    }, [currentIndex, items, distractors, loading]);
+
+    const handleAnswer = async (selectedId: string) => {
+        if (selectedOption) return; // Prevent double click
+
+        const currentItem = items[currentIndex];
+        const correct = selectedId === currentItem.id;
+
+        setSelectedOption(selectedId);
+        setIsCorrect(correct);
+
+        // Submit Result
+        const result = await submitQuizResult(currentItem.id, correct);
+
+        if (correct && result.xp) {
+            setSessionXP(prev => prev + result.xp);
         }
+
+        // Delay for next question
+        setTimeout(() => {
+            if (currentIndex + 1 >= items.length) {
+                setFinished(true);
+            } else {
+                setCurrentIndex(prev => prev + 1);
+            }
+        }, 1500);
     };
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center text-zinc-500 bg-zinc-900">Loading reviews...</div>;
+    if (loading) return (
+        <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
+            <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full mb-4"></div>
+            <p className="text-zinc-500 animate-pulse">Preparing your session...</p>
+        </div>
+    );
 
-    if (finished) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-900 text-zinc-50 p-4">
-                <span className="material-symbols-rounded text-6xl text-amber-400 mb-4">check_circle</span>
-                <h1 className="text-3xl font-bold mb-2 headline-metallic">All Done!</h1>
-                <p className="text-zinc-400 mb-8">You've reviewed your due cards.</p>
-                <Link href="/"><Button>Back Home</Button></Link>
+    if (items.length === 0) return (
+        <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center mb-6 ring-1 ring-zinc-800">
+                <span className="material-symbols-rounded text-4xl text-emerald-500">check</span>
             </div>
-        );
-    }
+            <h1 className="text-2xl font-bold text-white mb-2">All Caught Up!</h1>
+            <p className="text-zinc-400 mb-8 max-w-xs mx-auto">You have no pending reviews. Go scan more Kanji to build your deck!</p>
+            <Link href="/"><Button className="bg-amber-500 hover:bg-amber-600 text-black font-bold">Start Scanning</Button></Link>
+        </div>
+    );
 
-    if (items.length === 0) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-900 text-zinc-50 p-4">
-                <span className="material-symbols-rounded text-6xl text-zinc-700 mb-4">sentiment_satisfied</span>
-                <h1 className="text-2xl font-bold mb-2">No Reviews Due</h1>
-                <p className="text-zinc-400 mb-8">Great job catching up!</p>
-                <Link href="/"><Button>Back Home</Button></Link>
+    if (finished) return (
+        <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in-95">
+            <div className="w-24 h-24 bg-gradient-to-tr from-amber-400 to-orange-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-amber-500/20">
+                <span className="material-symbols-rounded text-5xl text-black">emoji_events</span>
             </div>
-        );
-    }
+            <h1 className="text-3xl font-bold text-white mb-2">Session Complete!</h1>
+            <p className="text-zinc-400 mb-1">You reviewed {items.length} words.</p>
+            <div className="text-4xl font-black text-amber-400 mb-8">+{sessionXP} XP</div>
 
-    const item = items[currentIndex];
+            <Link href="/"><Button className="w-full max-w-xs h-12 bg-white text-black font-bold">Back Home</Button></Link>
+        </div>
+    );
+
+    const currentItem = items[currentIndex];
 
     return (
-        <div className="min-h-screen bg-zinc-900 flex flex-col pb-10">
-            {/* Header */}
-            <div className="p-4 flex justify-between items-center text-zinc-400 text-sm">
-                <span>{currentIndex + 1} / {items.length}</span>
-                <Link href="/"><span className="material-symbols-rounded">close</span></Link>
-            </div>
-
-            {/* Card Area */}
-            <div className="flex-1 flex items-center justify-center p-6 perspective-[1000px]">
+        <div className="min-h-screen bg-zinc-950 flex flex-col p-6 max-w-md mx-auto relative overflow-hidden">
+            {/* Progress Bar */}
+            <div className="w-full h-1 bg-zinc-900 rounded-full mb-8 overflow-hidden">
                 <div
-                    className={`relative w-full max-w-sm aspect-[3/4] transition-all duration-500 transform-style-3d cursor-pointer ${isFlipped ? 'rotate-y-180' : ''}`}
-                    onClick={() => setIsFlipped(!isFlipped)}
-                >
-                    {/* FRONT */}
-                    <div className="absolute inset-0 backface-hidden bg-zinc-800 rounded-3xl p-8 flex flex-col items-center justify-center shadow-2xl border border-zinc-700">
-                        <div className="text-8xl font-black text-zinc-50 mb-8">{item.kanji_word}</div>
-                        <p className="text-zinc-500 text-sm uppercase tracking-widest">Tap to reveal</p>
-                    </div>
-
-                    {/* BACK */}
-                    <div className="absolute inset-0 backface-hidden bg-zinc-800 rounded-3xl p-8 flex flex-col items-center justify-center shadow-2xl border border-zinc-700 rotate-y-180">
-                        <div className="text-3xl font-bold text-amber-400 mb-2">{item.reading_kana}</div>
-                        <div className="text-xl text-zinc-100 font-medium mb-6 text-center">{item.meaning_en}</div>
-                        <div className="bg-zinc-900/50 p-4 rounded-xl border-l-2 border-zinc-600 w-full">
-                            <p className="text-sm text-zinc-300 italic mb-1">"{item.context_sentence_jp}"</p>
-                            <p className="text-xs text-zinc-500">{item.context_sentence_en}</p>
-                        </div>
-                    </div>
-                </div>
+                    className="h-full bg-amber-500 transition-all duration-500"
+                    style={{ width: `${((currentIndex) / items.length) * 100}%` }}
+                ></div>
             </div>
 
-            {/* Controls */}
-            <div className="h-32 px-6 flex items-center justify-center gap-4">
-                {isFlipped ? (
-                    <>
-                        <Button onClick={() => handleGrade('forgot')} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 h-14 px-6 rounded-xl flex-1 border border-red-500/20">Forgot</Button>
-                        <Button onClick={() => handleGrade('hard')} className="bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 h-14 px-6 rounded-xl flex-1 border border-amber-500/20">Hard</Button>
-                        <Button onClick={() => handleGrade('easy')} className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 h-14 px-6 rounded-xl flex-1 border border-emerald-500/20">Easy</Button>
-                    </>
-                ) : (
-                    <Button onClick={() => setIsFlipped(true)} className="w-full bg-zinc-100 text-zinc-900 hover:bg-white h-14 text-lg font-bold rounded-xl">
-                        Show Answer
-                    </Button>
-                )}
+            {/* Stats Header */}
+            <div className="flex justify-between items-center mb-10">
+                <div className="flex items-center gap-2 px-3 py-1 bg-zinc-900 rounded-full border border-zinc-800">
+                    <span className="material-symbols-rounded text-amber-500 text-sm">bolt</span>
+                    <span className="text-xs font-bold text-zinc-300">{sessionXP} XP</span>
+                </div>
+                <div className="text-zinc-500 text-sm font-mono">{currentIndex + 1}/{items.length}</div>
+            </div>
+
+            {/* Question Card */}
+            <div className="flex-1 flex flex-col items-center justify-center mb-10">
+                <div className="text-center mb-2">
+                    <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                        {quizMode === 'kanji-to-en' ? 'What does this mean?' : 'Which Kanji is this?'}
+                    </span>
+                </div>
+
+                <div className="text-5xl md:text-6xl font-black text-white text-center min-h-[5rem] flex items-center justify-center animate-in fade-in slide-in-from-bottom-4">
+                    {quizMode === 'kanji-to-en' ? currentItem.kanji_word : currentItem.meaning_en}
+                </div>
+
+                {/* Visual hint only for kanji mode if wanted, simplifying for now */}
+            </div>
+
+            {/* Options Grid */}
+            <div className="grid grid-cols-1 gap-3 mb-8">
+                {options.map((opt) => {
+                    const isSelected = selectedOption === opt.id;
+                    const isCorrectOption = opt.id === currentItem.id;
+
+                    let stateClass = "bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-300";
+
+                    // Reveal state
+                    if (selectedOption) {
+                        if (isCorrectOption) {
+                            stateClass = "bg-emerald-500/20 border-emerald-500 text-emerald-400";
+                        } else if (isSelected && !isCorrectOption) {
+                            stateClass = "bg-red-500/20 border-red-500 text-red-400";
+                        } else {
+                            stateClass = "bg-zinc-900/50 border-zinc-800 text-zinc-600 opacity-50";
+                        }
+                    }
+
+                    return (
+                        <button
+                            key={opt.id}
+                            disabled={!!selectedOption}
+                            onClick={() => handleAnswer(opt.id)}
+                            className={`
+                                h-16 w-full rounded-2xl border-2 font-bold text-lg transition-all duration-200
+                                flex items-center justify-center relative overflow-hidden
+                                ${stateClass}
+                            `}
+                        >
+                            <span className="relative z-10 px-4 truncate">
+                                {quizMode === 'kanji-to-en' ? opt.meaning_en : opt.kanji_word}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Quit Button */}
+            <div className="text-center">
+                <Link href="/" className="text-zinc-600 text-xs hover:text-white transition-colors">Quit Session</Link>
             </div>
         </div>
     );
