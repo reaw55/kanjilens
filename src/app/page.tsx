@@ -26,23 +26,72 @@ export default async function Home() {
     dueCount = count || 0;
   }
 
+  // Exponential Leveling Logic
+  // Level = floor(0.1 * sqrt(XP)) + 1
+  // XP = 100 * (Level - 1)^2
+  const calculateLevel = (xp: number) => Math.floor(0.1 * Math.sqrt(xp)) + 1;
+  const getMinXPForLevel = (level: number) => 100 * Math.pow(level - 1, 2);
+  const getUserProgress = (xp: number) => {
+    const currentLevel = calculateLevel(xp);
+    const nextLevel = currentLevel + 1;
+    const minXP = getMinXPForLevel(currentLevel);
+    const nextXP = getMinXPForLevel(nextLevel);
+    const progress = xp - minXP;
+    const range = nextXP - minXP;
+    // Prevent division by zero for level 1
+    const percent = range === 0 ? 0 : (progress / range) * 100;
+    return { currentLevel, nextXP, percent };
+  };
+
+  const { currentLevel, nextXP, percent } = getUserProgress(stats.xp || 0);
+
+  // Self-Healing: Update DB if level is inconsistent with new formula
+  if (user && stats.level !== currentLevel) {
+    // Non-blocking update to fix legacy data
+    await supabase.from("profiles").update({ level: currentLevel }).eq("id", user.id);
+    stats.level = currentLevel; // Update local stat for valid render 
+  }
+
   return (
     <main className="min-h-screen pb-32 pt-8 px-4 bg-zinc-900 text-zinc-50 overflow-x-hidden">
       {/* Header */}
-      <div className="flex justify-between items-center mb-8 max-w-md mx-auto">
-        <h1 className="text-2xl font-bold headline-metallic">KanjiLens</h1>
-        {user ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 bg-zinc-800 rounded-full px-3 py-1 border border-zinc-700">
-              <span className="material-symbols-rounded text-amber-500 text-sm">bolt</span>
-              <span className="text-xs font-bold font-mono text-zinc-300">{stats.streak}</span>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center text-zinc-900 font-bold text-xs">
+      <div className="mb-8 max-w-md mx-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold headline-metallic">KanjiLens</h1>
+          {user ? (
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center text-zinc-900 font-bold text-xs shadow-lg shadow-amber-500/20">
               {user.email?.[0].toUpperCase()}
             </div>
+          ) : (
+            <Link href="/login"><Button variant="secondary" className="h-8 rounded-lg text-xs">Log In</Button></Link>
+          )}
+        </div>
+
+        {user && (
+          <div className="bg-zinc-800/50 rounded-2xl p-4 border border-zinc-700/50 backdrop-blur-md">
+            <div className="flex justify-between items-end mb-2">
+              <div>
+                <div className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Level {currentLevel}</div>
+                <div className="text-2xl font-bold text-white tracking-tight">{(stats.xp || 0).toLocaleString()} <span className="text-sm text-amber-500">XP</span></div>
+              </div>
+              <div className="flex items-center gap-1 bg-amber-500/10 rounded-lg px-2 py-1 border border-amber-500/20">
+                <span className="material-symbols-rounded text-amber-500 text-sm">bolt</span>
+                <span className="text-xs font-bold font-mono text-amber-200">{stats.streak || 0}</span>
+              </div>
+            </div>
+
+            {/* Progress Bar (Exponential) */}
+            <div className="relative h-2 bg-zinc-700/50 rounded-full overflow-hidden">
+              <div
+                className="absolute top-0 left-0 h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-1000"
+                style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+              ></div>
+            </div>
+            <div className="flex justify-between mt-1 text-[10px] font-medium text-zinc-500">
+              <span>{(stats.xp || 0).toLocaleString()} XP</span>
+              <span>{nextXP.toLocaleString()} XP</span>
+            </div>
           </div>
-        ) : (
-          <Link href="/login"><Button variant="secondary" className="h-8 rounded-lg text-xs">Log In</Button></Link>
         )}
       </div>
 

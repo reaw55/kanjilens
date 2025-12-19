@@ -59,14 +59,16 @@ export async function submitQuizResult(itemId: string, isCorrect: boolean) {
         newLevel = Math.min(SRS_INTERVALS.length - 1, newLevel + 1);
         xpGained = 10 + (newLevel * 2); // Base 10 XP + Bonus for higher levels
 
-        // Update Profile XP
-        await supabase.rpc('increment_xp', { amount: xpGained, user_id_param: user.id });
-        // Fallback if RPC doesn't exist (client side handles this usually but good to have)
-        // actually we will manually update for safety if RPC missing, 
-        // but let's assume we do a direct update
+        // Update Profile XP directly
         const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
         if (profile) {
-            await supabase.from("profiles").update({ xp: profile.xp + xpGained }).eq("id", user.id);
+            const newXp = (profile.xp || 0) + xpGained;
+            const { error: xpError } = await supabase
+                .from("profiles")
+                .update({ xp: newXp })
+                .eq("id", user.id);
+
+            if (xpError) console.error("XP Update Failed", xpError);
         }
 
     } else {
