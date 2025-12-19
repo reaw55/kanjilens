@@ -111,7 +111,7 @@ export function CameraCapture() {
             <input
                 type="file"
                 accept="image/*"
-                capture="environment"
+                // capture="environment" // Removed to allow Gallery selection on mobile
                 className="hidden"
                 ref={fileInputRef}
                 onChange={handleFileSelect}

@@ -72,7 +72,7 @@ export async function generateLesson(word: string, contextFullText: string) {
                 { role: "user", content: prompt }
             ],
             response_format: { type: "json_object" },
-            temperature: 0.7,
+            // temperature: 0.7, // Removed as unsupported by some reasoning models
         });
 
         const content = completion.choices[0].message.content;
