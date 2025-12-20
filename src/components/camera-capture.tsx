@@ -45,7 +45,7 @@ export function CameraCapture() {
             setPreview(objectUrl);
             setCroppedImage(null);
             setAllPaths([]); // Reset paths
-            setPathPoints([]); // Reset temp
+            setCurrentPath([]); // Reset temp
 
             // Clear canvas
             if (canvasRef.current) {
@@ -419,7 +419,14 @@ export function CameraCapture() {
                 </div>
             ) : (
                 <div className="space-y-6 reveal-up">
-                    <div className="relative aspect-[3/4] max-w-[280px] mx-auto rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+                    <div
+                        ref={containerRef}
+                        className="relative aspect-[3/4] max-w-[280px] mx-auto rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10 touch-none select-none"
+                        onPointerDown={startDrawingTrack}
+                        onPointerMove={drawTrack}
+                        onPointerUp={stopDrawingTrack}
+                        onPointerLeave={stopDrawingTrack}
+                    >
                         <Image
                             src={preview}
                             alt="Preview"
