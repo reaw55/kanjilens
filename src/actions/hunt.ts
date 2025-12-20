@@ -249,12 +249,14 @@ export async function advanceLevel() {
     if (!user) return { error: "Unauthorized" };
 
     // Find the completed active session
-    const { data: session } = await supabase
+    const { data: sessions } = await supabase
         .from("kanji_hunt_sessions")
         .select("*")
         .eq("user_id", user.id)
         .eq("is_active", true)
-        .single();
+        .limit(1);
+
+    const session = sessions && sessions.length > 0 ? sessions[0] : null;
 
     if (session) {
         // Archive it
@@ -262,22 +264,33 @@ export async function advanceLevel() {
             .from("kanji_hunt_sessions")
             .update({ is_active: false })
             .eq("id", session.id);
-
-        // INCREMENT PROFILE MISSION LEVEL
-        const { data: profile } = await supabase
-            .from("profiles")
-            .select("mission_level")
-            .eq("id", user.id)
-            .single();
-
-        const current = profile?.mission_level || 1;
-        await supabase
-            .from("profiles")
-            .update({ mission_level: current + 1 })
-            .eq("id", user.id);
     }
 
-    // The next call to getCurrentHunt will create a fresh one for the NEW mission level
+    // ALWAYS INCREMENT LEVEL if we are called (we trust the UI state for MVP, or we could verify completion)
+    // Even if no session found (weird state), we should let them move on if they are stuck.
+
+    // INCREMENT PROFILE MISSION LEVEL
+    const { data: profile } = await supabase
+        .from("profiles")
+        .select("mission_level")
+        .eq("id", user.id)
+        .single();
+
+    const current = profile?.mission_level || 1;
+
+    console.log("Advancing Level from", current, "to", current + 1);
+
+    await supabase
+        .from("profiles")
+        .update({ mission_level: current + 1 })
+        .eq("id", user.id);
+
+    const { revalidatePath } = await import("next/cache");
+    const { redirect } = await import("next/navigation");
+    revalidatePath("/"); // Update dashboard too
+    revalidatePath("/hunt");
+    redirect("/hunt"); // Force navigation to refresh server component
+
     return { success: true };
 }
 
