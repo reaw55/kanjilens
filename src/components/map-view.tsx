@@ -395,6 +395,12 @@ function MapPopup({ capture, onClose, container }: { capture: any, onClose: () =
                             <div className="text-zinc-100 text-sm leading-relaxed animate-in fade-in">
                                 {translation}
                             </div>
+                        ) : (!capture.ocr_data?.text) ? (
+                            <div className="text-zinc-500 text-sm italic py-2 border-l-2 border-zinc-700 pl-3">
+                                No text detected in this image.
+                                <br />
+                                <span className="text-xs opacity-70">Translation not available.</span>
+                            </div>
                         ) : isGenerating ? (
                             <div className="flex items-center gap-2 text-amber-500 text-sm animate-pulse">
                                 <span className="material-symbols-rounded animate-spin text-lg">autorenew</span>
