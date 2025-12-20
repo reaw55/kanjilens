@@ -58,6 +58,8 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
     React.useEffect(() => {
         if (!internalVocab.detailed_data || internalVocab.status === 'learning') {
             const supabase = createClient();
+            console.log(`Setting up Realtime for ID: ${internalVocab.id}`);
+
             const channel = supabase
                 .channel(`vocab-${internalVocab.id}`)
                 .on(
@@ -68,14 +70,27 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
                         table: 'vocabulary_items',
                         filter: `id=eq.${internalVocab.id}`
                     },
-                    (payload) => {
-                        console.log("Realtime Update Received!", payload);
-                        if (payload.new && payload.new.detailed_data) {
-                            setInternalVocab(payload.new);
+                    async (payload) => {
+                        console.log("Realtime Update Signal Received:", payload);
+
+                        // FETCH FRESH DATA immediately to avoid payload size limits/issues
+                        const { data: freshData, error } = await supabase
+                            .from("vocabulary_items")
+                            .select("*")
+                            .eq("id", internalVocab.id)
+                            .single();
+
+                        if (freshData && !error) {
+                            console.log("Refetched fresh data:", freshData);
+                            setInternalVocab(freshData);
+                        } else {
+                            console.error("Failed to refetch data:", error);
                         }
                     }
                 )
-                .subscribe();
+                .subscribe((status) => {
+                    console.log(`Realtime Subscription Status for ${internalVocab.id}:`, status);
+                });
 
             return () => {
                 supabase.removeChannel(channel);

@@ -106,7 +106,7 @@ export function CameraCapture() {
     };
 
     return (
-        <div className="w-full max-w-md mx-auto p-4">
+        <div className="w-full max-w-md mx-auto p-4 pb-24">
             <input
                 type="file"
                 accept="image/*"
@@ -130,7 +130,7 @@ export function CameraCapture() {
                 </div>
             ) : (
                 <div className="space-y-6 reveal-up">
-                    <div className="relative aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+                    <div className="relative aspect-[3/4] max-w-[280px] mx-auto rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10">
                         <Image
                             src={preview}
                             alt="Preview"
