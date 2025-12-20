@@ -65,8 +65,8 @@ export function VocabList({ items }: { items: any[] }) {
                         key={f}
                         onClick={() => setFilter(f)}
                         className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${filter === f
-                                ? 'bg-amber-500 text-zinc-900 shadow-lg shadow-amber-500/20'
-                                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                            ? 'bg-amber-500 text-zinc-900 shadow-lg shadow-amber-500/20'
+                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                             }`}
                     >
                         {f === 'all' ? 'All Words' : f === 'scan' ? 'From Camera' : 'Related Words'}
@@ -112,6 +112,11 @@ export function VocabList({ items }: { items: any[] }) {
             {selectedVocab && (
                 <VocabDetailModal
                     vocab={selectedVocab}
+                    existingWords={new Set(items.map(i => i.kanji_word))}
+                    onJumpTo={(word) => {
+                        const target = items.find(i => i.kanji_word === word);
+                        if (target) setSelectedVocab(target);
+                    }}
                     onClose={() => setSelectedVocab(null)}
                 />
             )}

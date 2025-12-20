@@ -31,10 +31,12 @@ type DetailedData = {
 
 type VocabDetailModalProps = {
     vocab: any;
+    existingWords?: Set<string>;
+    onJumpTo?: (word: string) => void;
     onClose: () => void;
 };
 
-export function VocabDetailModal({ vocab, onClose }: VocabDetailModalProps) {
+export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: VocabDetailModalProps) {
     if (!vocab) return null;
 
     // Normalize Data (Handle both new rich structure and legacy/fallback)
@@ -133,26 +135,39 @@ export function VocabDetailModal({ vocab, onClose }: VocabDetailModalProps) {
                                             <div className="text-xs text-zinc-500">{combo.meaning}</div>
                                         </div>
                                         {combo.targetKanji && (
-                                            <button
-                                                className="text-[10px] bg-zinc-950 px-2 py-1 rounded text-zinc-500 border border-zinc-900 hover:text-amber-400 hover:border-amber-900/50 transition-colors"
-                                                onClick={async (e) => {
-                                                    e.stopPropagation();
-                                                    if (confirm(`Learn related word: ${combo.targetKanji}?`)) {
-                                                        const placeholder = {
-                                                            kanji: combo.targetKanji,
-                                                            reading: "...",
-                                                            meaning: "Loading...",
-                                                            context_usage: { sentence: "Related to " + vocab.kanji_word, english: "..." },
-                                                            detailed_data: null
-                                                        };
-                                                        await import("@/actions/learn").then(mod => mod.saveVocabulary(placeholder, null, "related"));
-                                                        onClose();
-                                                        window.location.reload();
-                                                    }
-                                                }}
-                                            >
-                                                Next: {combo.targetKanji}
-                                            </button>
+                                            existingWords?.has(combo.targetKanji) ? (
+                                                <button
+                                                    className="text-[10px] bg-amber-950/30 px-1.5 py-0.5 rounded text-amber-500 border border-amber-900/30 hover:bg-amber-900/50 transition-colors flex items-center gap-1"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onJumpTo?.(combo.targetKanji);
+                                                    }}
+                                                >
+                                                    <span className="material-symbols-rounded text-[8px]">check_circle</span>
+                                                    View: {combo.targetKanji}
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    className="text-[10px] bg-zinc-950 px-2 py-1 rounded text-zinc-500 border border-zinc-900 hover:text-amber-400 hover:border-amber-900/50 transition-colors"
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (confirm(`Learn related word: ${combo.targetKanji}?`)) {
+                                                            const placeholder = {
+                                                                kanji: combo.targetKanji,
+                                                                reading: "...",
+                                                                meaning: "Loading...",
+                                                                context_usage: { sentence: "Related to " + vocab.kanji_word, english: "..." },
+                                                                detailed_data: null
+                                                            };
+                                                            await import("@/actions/learn").then(mod => mod.saveVocabulary(placeholder, null, "related"));
+                                                            onClose();
+                                                            window.location.reload();
+                                                        }
+                                                    }}
+                                                >
+                                                    Next: {combo.targetKanji}
+                                                </button>
+                                            )
                                         )}
                                     </div>
                                 ))}
