@@ -102,8 +102,75 @@ export function CameraCapture() {
         }
     };
 
+    const [browserLocation, setBrowserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+    // ... existing refs ...
+
     const triggerCamera = () => {
+        // 1. Try to get current location from Browser immediately
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setBrowserLocation({
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    });
+                },
+                (err) => {
+                    console.warn("Geolocation permission denied or failed", err);
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        }
         fileInputRef.current?.click();
+    };
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const objectUrl = URL.createObjectURL(file);
+            setPreview(objectUrl);
+
+            // Default to browser location if available (will be overwritten by EXIF if found)
+            let detectedLocation = browserLocation;
+            setLocation(detectedLocation);
+
+            try {
+                // ... import ExifReader ...
+                const ExifReader = (await import("exifreader")).default;
+                const tags = await ExifReader.load(file);
+
+                // Safe parsing helper
+                if (tags && tags['GPSLatitude'] && tags['GPSLongitude']) {
+                    // ... (keep existing EXIF logic) ...
+                    // Helper to Convert DMS to Decimal
+                    const toDecimal = (gpsTag: any) => {
+                        if (!gpsTag || !gpsTag.value || gpsTag.value.length < 3) return null;
+                        const d = gpsTag.value[0][0] / gpsTag.value[0][1];
+                        const m = gpsTag.value[1][0] / gpsTag.value[1][1];
+                        const s = gpsTag.value[2][0] / gpsTag.value[2][1];
+                        return d + (m / 60) + (s / 3600);
+                    };
+
+                    const lat = toDecimal(tags['GPSLatitude']);
+                    const lng = toDecimal(tags['GPSLongitude']);
+
+                    if (lat !== null && lng !== null) {
+                        let finalLat = lat;
+                        let finalLng = lng;
+
+                        if (tags['GPSLatitudeRef']?.description?.startsWith('S')) finalLat = -lat;
+                        if (tags['GPSLongitudeRef']?.description?.startsWith('W')) finalLng = -lng;
+
+                        // EXIF is authoritative for the IMAGE, so it overrides browser location
+                        detectedLocation = { lat: finalLat, lng: finalLng };
+                        setLocation(detectedLocation);
+                    }
+                }
+            } catch (err) {
+                console.warn("EXIF extraction failed, keeping browser location if any", err);
+            }
+        }
     };
 
     return (
