@@ -51,6 +51,20 @@ export function VocabList({ items }: { items: any[] }) {
         }
     }, [items, isProcessing, router]);
 
+    // SYNC SELECTED: If items update (via refresh), update the selected object too so it doesn't get stale
+    useEffect(() => {
+        if (selectedVocab) {
+            const fresh = items.find(i => i.id === selectedVocab.id);
+            if (fresh && JSON.stringify(fresh) !== JSON.stringify(selectedVocab)) {
+                // Update local selection if the list item has changed (e.g. from "pending" to "done")
+                // BUT: If the Modal has its own realtime listener, this might compete.
+                // Actually, Modal handles its own internal state now, so this is less critical for the *content* of the modal,
+                // but helps if we close and re-open.
+                setSelectedVocab(fresh);
+            }
+        }
+    }, [items, selectedVocab]);
+
     const filteredItems = items.filter(item => {
         if (filter === 'all') return true;
         // Default to 'scan' if null (for legacy items before migration)
