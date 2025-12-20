@@ -1,6 +1,6 @@
 "use server";
 
-import { generateLesson, saveVocabulary } from "@/actions/learn";
+import { generateBatchLessons, saveVocabulary } from "@/actions/learn";
 import { redirect } from "next/navigation";
 
 export async function handleSelection(formData: FormData) {
@@ -12,17 +12,13 @@ export async function handleSelection(formData: FormData) {
         return; // Or handle error
     }
 
-    // Determine context. For MVP, just pass the full text block.
-    // In reality, we might want to find the sentence containing the word.
+    // 1. Batch Generate (Single API Call)
+    const { lessons } = await generateBatchLessons(words, fullText);
 
-    for (const word of words) {
-        // 1. Generate Content
-        const { lesson, error } = await generateLesson(word, fullText);
-
-        if (lesson) {
-            // 2. Save
-            await saveVocabulary(lesson, captureId);
-        }
+    if (lessons) {
+        // 2. Save / Link All
+        // We can run these DB writes in parallel as they are independent
+        await Promise.all(lessons.map(lesson => saveVocabulary(lesson, captureId)));
     }
 
     redirect("/vocab");

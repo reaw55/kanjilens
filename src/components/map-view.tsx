@@ -44,10 +44,28 @@ function MapUpdater({ center, captures }: { center: [number, number] | null, cap
     return null;
 }
 
+// Custom component to handle map events like zoom
+function MapEventHandler({ onZoomChange }: { onZoomChange: (zoom: number) => void }) {
+    const map = useMap();
+
+    useEffect(() => {
+        const handler = () => {
+            onZoomChange(map.getZoom());
+        };
+        map.on('zoomend', handler);
+        return () => {
+            map.off('zoomend', handler);
+        };
+    }, [map, onZoomChange]);
+
+    return null;
+}
+
 export default function MapView() {
     const [captures, setCaptures] = useState<any[]>([]);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [selectedCapture, setSelectedCapture] = useState<any>(null);
+    const [currentZoom, setCurrentZoom] = useState<number>(13); // Default zoom
 
     useEffect(() => {
         const supabase = createClient();
@@ -80,11 +98,12 @@ export default function MapView() {
                 className="bg-zinc-950"
             >
                 <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                 />
 
                 <MapUpdater center={userLocation} captures={captures} />
+                <MapEventHandler onZoomChange={setCurrentZoom} />
 
                 {/* Render markers with Jitter for overlaps */}
                 {(() => {
@@ -98,27 +117,62 @@ export default function MapView() {
 
                     // 2. Render all
                     return Object.values(groups).flatMap((group) => {
-                        if (group.length === 1) {
-                            // Single marker, no change
-                            const cap = group[0];
+                        // CLUSTERING LOGIC:
+                        // If zoomed out (< 16) AND multiple items, show stack.
+                        // If zoomed in (>= 16), show expanded spiral.
+                        const isStacked = group.length > 1 && currentZoom < 16;
+
+                        if (group.length === 1 || isStacked) {
+                            // Single marker OR Stacked Cluster
+                            const cap = group[0]; // Show the first one as preview
+                            const count = group.length;
+
+                            // Badge HTML if stacked
+                            const badgeHtml = isStacked
+                                ? `<div class="absolute -top-2 -right-2 bg-amber-500 text-black text-[10px] font-bold h-5 min-w-[1.25rem] px-1 rounded-full border-2 border-zinc-900 flex items-center justify-center shadow-lg z-20">
+                                     +${count - 1}
+                                   </div>`
+                                : '';
+
                             const imageIcon = L.divIcon({
                                 className: '!bg-transparent !border-0',
-                                html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800 group hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
-                                         <img src="/_next/image?url=${encodeURIComponent(cap.image_url)}&w=64&q=50" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
+                                html: `<div class="relative w-12 h-12 rounded-full overflow-visible group hover:scale-110 transition-transform">
+                                         <div class="absolute inset-0 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800">
+                                            <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                         </div>
+                                         ${badgeHtml}
                                        </div>`,
                                 iconSize: [48, 48],
                                 iconAnchor: [24, 24]
                             });
+
                             return (
                                 <Marker
                                     key={cap.id}
                                     position={[cap.geo_lat, cap.geo_lng]}
                                     icon={imageIcon}
-                                    eventHandlers={{ click: () => setSelectedCapture(cap) }}
+                                    eventHandlers={{
+                                        click: () => {
+                                            if (isStacked) {
+                                                // Zoom in to expand
+                                                const map = (window as any).currMap; // Hacky but simple, or pass map view model. 
+                                                // Better: We don't have direct map ref here in loop.
+                                                // Actually, Leaflet Marker click exposes 'target'.
+                                                // But simpler: just set state or assume user zooms manually?
+                                                // Let's just open the modal for the Top one for now, 
+                                                // OR ideally we trigger a zoom.
+                                                // Since we can't easily access map instance inside this loop without context,
+                                                // let's just Open the lightbox. The user can manually zoom to see others.
+                                                setSelectedCapture(cap);
+                                            } else {
+                                                setSelectedCapture(cap);
+                                            }
+                                        }
+                                    }}
                                 />
                             );
                         } else {
-                            // Multiple markers, apply spiral/circle jitter
+                            // Expanded Spiral (Zoomed In)
                             return group.map((cap, i) => {
                                 const angle = (i / group.length) * 2 * Math.PI;
                                 const radius = 0.0003; // Approx 30 meters
@@ -128,7 +182,7 @@ export default function MapView() {
                                 const imageIcon = L.divIcon({
                                     className: '!bg-transparent !border-0',
                                     html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-500 shadow-xl bg-zinc-800 z-10 hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
-                                              <img src="/_next/image?url=${encodeURIComponent(cap.image_url)}&w=64&q=50" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
+                                              <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
                                                <div class="absolute -top-1 -right-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded-full border border-white">
                                                   ${i + 1}
                                                </div>

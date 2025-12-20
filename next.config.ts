@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  reactStrictMode: false, // Fix for React-Leaflet double-mount issues
   output: 'standalone',
   experimental: {
     serverActions: {

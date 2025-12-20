@@ -97,25 +97,48 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount }: Ho
                     viewMode === 'dashboard' ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none hidden"
                 )}>
                     {/* Review Card */}
-                    <Link href="/quiz" className="block group w-full">
-                        <div className="bg-zinc-900/90 backdrop-blur-xl rounded-3xl p-6 border border-zinc-800 shadow-2xl relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-10">
-                                <span className="material-symbols-rounded text-6xl">school</span>
-                            </div>
-                            <div className="relative z-10">
-                                <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2">Study Due</div>
-                                <div className="text-4xl font-bold text-white flex items-baseline gap-2">
-                                    {dueCount} <span className="text-sm font-medium text-zinc-500">cards</span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <Link href="/quiz" className="block group col-span-2">
+                            <div className="bg-zinc-900/90 backdrop-blur-xl rounded-3xl p-6 border border-zinc-800 shadow-2xl relative overflow-hidden h-full">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                    <span className="material-symbols-rounded text-6xl">school</span>
                                 </div>
-                                {dueCount > 0 && (
-                                    <div className="mt-4 inline-flex items-center gap-2 text-amber-500 text-sm font-bold">
-                                        <span>Start Session</span>
-                                        <span className="material-symbols-rounded text-base">arrow_forward</span>
+                                <div className="relative z-10">
+                                    <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2">Study Due</div>
+                                    <div className="text-4xl font-bold text-white flex items-baseline gap-2">
+                                        {dueCount} <span className="text-sm font-medium text-zinc-500">cards</span>
                                     </div>
-                                )}
+                                    {dueCount > 0 ? (
+                                        <div className="mt-4 inline-flex items-center gap-2 text-amber-500 text-sm font-bold">
+                                            <span>Start Session</span>
+                                            <span className="material-symbols-rounded text-base">arrow_forward</span>
+                                        </div>
+                                    ) : (
+                                        <div className="mt-4 inline-flex items-center gap-2 text-zinc-500 text-sm font-bold">
+                                            <span>All Caught Up</span>
+                                            <span className="material-symbols-rounded text-base">check</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </Link>
+                        </Link>
+
+                        {/* Vocab List Card */}
+                        <Link href="/vocab" className="block group col-span-2">
+                            <div className="bg-zinc-900/90 backdrop-blur-xl rounded-2xl p-4 border border-zinc-800 shadow-xl flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
+                                <div className="flex items-center gap-4">
+                                    <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
+                                        <span className="material-symbols-rounded text-blue-500 text-2xl">menu_book</span>
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-white">Vocabulary List</div>
+                                        <div className="text-xs text-zinc-400">View all collected Kanji</div>
+                                    </div>
+                                </div>
+                                <span className="material-symbols-rounded text-zinc-600">chevron_right</span>
+                            </div>
+                        </Link>
+                    </div>
 
                     {/* Recent Activity */}
                     <div className="bg-zinc-900/90 backdrop-blur-xl rounded-3xl p-6 border border-zinc-800 shadow-2xl">
