@@ -52,7 +52,9 @@ export default async function HuntPage() {
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <h2 className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-1">Current Mission</h2>
-                                <h3 className="text-2xl font-bold text-white">Street Signs: Level 1</h3>
+                                <h3 className="text-2xl font-bold text-white">
+                                    {session.theme || "Street Signs"}: Mission {session.mission_number || session.level_number || 1}
+                                </h3>
                             </div>
                             {progress === 100 && (
                                 <div className="bg-amber-500 text-black text-xs font-bold px-3 py-1 rounded-full animate-bounce">
@@ -80,7 +82,7 @@ export default async function HuntPage() {
                                 await advanceLevel();
                             }}>
                                 <button className="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2">
-                                    <span>Start Next Level</span>
+                                    <span>Start Next Mission</span>
                                     <span className="material-symbols-rounded">arrow_forward</span>
                                 </button>
                             </form>
@@ -91,7 +93,8 @@ export default async function HuntPage() {
                 {/* Grid */}
                 <div className="grid grid-cols-2 gap-4">
                     {targets.map((word, i) => {
-                        const isFound = found.includes(word);
+                        // ROBUSTNESS: Trim both to be safe
+                        const isFound = found.some(f => f.trim() === word.trim());
                         return (
                             <div
                                 key={i}

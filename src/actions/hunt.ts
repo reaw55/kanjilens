@@ -9,32 +9,135 @@ const LEVEL_1_WORDS = [
     "非常口", // hijouguchi - Emergency Exit
     "止まれ", // tomare - Stop
     "受付", // uketsuke - Reception
-    "案内", // annai - Information/Guide
-    "禁煙", // kinen - No Smoking
-    "危険", // kiken - Danger
-    "注意", // chuui - Caution
-    "準備中" // junbichuu - Preparation/Closed
+    "禁煙"  // kinen - No Smoking
 ];
+
+async function generateHuntLevel(supabase: any, user: any, levelInfo: { nextMission: number }) {
+    // 1. Get ALL previously used words to avoid duplicates
+    // We can select all target_words arrays and flat map them.
+    const { data: pastSessions } = await supabase
+        .from("kanji_hunt_sessions")
+        .select("target_words")
+        .eq("user_id", user.id);
+
+    const usedWords = new Set<string>();
+    if (pastSessions) {
+        pastSessions.forEach((s: any) => {
+            if (Array.isArray(s.target_words)) {
+                s.target_words.forEach((w: string) => usedWords.add(w));
+            }
+        });
+    }
+
+    // 2. AI Generation
+    try {
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+        const prompt = `
+            Generate a unique "Kanji Hunt" level for a scavenger hunt game.
+            Mission Number: ${levelInfo.nextMission}
+            
+            Requirements:
+            1. Theme: Pick a distinct theme (e.g., "Convenience Store", "Train Station", "School", "Nature", "Kitchen", "Supermarket").
+            2. Words: Provide exactly 6 COMMON Kanji words that match the theme.
+            3. VISUAL: The words must be findable on SIGNS, LABELS, or PACKAGING in real life.
+            4. UNIQUE: Do NOT use these words: ${JSON.stringify(Array.from(usedWords))}.
+            
+            Output JSON ONLY:
+            {
+                "theme": "Theme Name",
+                "words": ["Word1", "Word2", ...]
+            }
+        `;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: "You are a game designer. Output valid JSON only." },
+                { role: "user", content: prompt }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        const content = completion.choices[0].message.content;
+        if (!content) throw new Error("No content");
+        const data = JSON.parse(content);
+
+        return {
+            theme: data.theme,
+            words: data.words,
+            mission: levelInfo.nextMission
+        };
+
+    } catch (e) {
+        console.error("AI Generation Failed", e);
+        // Fallback to random subset of hardcoded if AI fails? Or just retry Level 1?
+        // For now, fallback to "Review Mode"
+        return {
+            theme: "Review: Street Signs",
+            words: LEVEL_1_WORDS,
+            mission: levelInfo.nextMission
+        };
+    }
+}
 
 async function ensureSession(supabase: any, user: any) {
     // 1. Try to find active session
-    const { data: activeSession } = await supabase
+    // Use maybeSingle or just find the most recent one to be robust against duplicates
+    const { data: activeSessions } = await supabase
         .from("kanji_hunt_sessions")
         .select("*")
         .eq("user_id", user.id)
         .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+    if (activeSessions && activeSessions.length > 0) {
+        return activeSessions[0];
+    }
+
+    // 2. Determine Next Level / Mission
+    // Check max mission completed/started
+    const { data: maxMissionData } = await supabase
+        .from("kanji_hunt_sessions")
+        .select("mission_number, level_number")
+        .eq("user_id", user.id)
+        .order("mission_number", { ascending: false })
+        .limit(1)
         .single();
 
-    if (activeSession) return activeSession;
+    const nextMission = (maxMissionData?.mission_number || 0) + 1;
+    // For now, level increments with mission, but we could separate logic later
+    const nextLevel = (maxMissionData?.level_number || 0) + 1;
 
-    // 2. Create new session if none exists
+    let theme = "Street Signs";
+    let words = LEVEL_1_WORDS;
+
+    // If Mission > 1, Generate!
+    if (nextMission > 1) {
+        const gen = await generateHuntLevel(supabase, user, { nextMission });
+        theme = gen.theme;
+        // Clean words (remove possible markdown or extra spaces)
+        if (gen.words) {
+            words = gen.words.map((w: string) => w.trim());
+        } else {
+            // Fallback if AI generation failed to provide words
+            words = LEVEL_1_WORDS;
+        }
+    }
+
+    // 3. Create new session
     const { data: newSession, error } = await supabase
         .from("kanji_hunt_sessions")
         .insert({
             user_id: user.id,
-            target_words: LEVEL_1_WORDS,
+            target_words: words,
             found_words: [],
-            is_active: true
+            is_active: true,
+            theme: theme,
+            level_number: nextLevel,
+            mission_number: nextMission
         })
         .select()
         .single();
