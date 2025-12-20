@@ -43,7 +43,13 @@ export async function updateSession(request: NextRequest) {
     // If this is not done, you may be causing the browser and server to go out
     // of sync and terminate the user's session prematurely!
 
-    await supabase.auth.getUser()
+    try {
+        await supabase.auth.getUser()
+    } catch (e) {
+        console.error("Middleware Auth Check Failed:", e);
+        // We continue intentionally - if auth is mandated, the database policies or page logic will catch it.
+        // This prevents the entire app from 500ing on a transient network glitch during token refresh.
+    }
 
     return supabaseResponse
 }

@@ -134,7 +134,7 @@ export function VocabList({ items }: { items: any[] }) {
                             : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                             }`}
                     >
-                        {f === 'all' ? 'All Words' : f === 'scan' ? 'From Camera' : 'Related Words'}
+                        {f === 'all' ? 'All' : f === 'scan' ? 'Camera' : 'Related'}
                         <span className="ml-2 opacity-60 text-[10px]">
                             {items.filter(i => (i.source || 'scan') === f || f === 'all').length}
                         </span>
