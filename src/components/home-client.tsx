@@ -138,6 +138,23 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount }: Ho
                                 <span className="material-symbols-rounded text-zinc-600">chevron_right</span>
                             </div>
                         </Link>
+
+                        {/* Kanji Hunt Card */}
+                        <Link href="/hunt" className="block group col-span-2">
+                            <div className="bg-gradient-to-r from-amber-900/20 to-orange-900/20 backdrop-blur-xl rounded-2xl p-4 border border-amber-500/20 shadow-xl flex items-center justify-between hover:bg-amber-900/10 transition-colors relative overflow-hidden">
+                                <div className="absolute inset-0 bg-amber-500/5 mix-blend-overlay opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="flex items-center gap-4 relative z-10">
+                                    <div className="h-12 w-12 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                                        <span className="material-symbols-rounded text-amber-500 text-2xl">location_searching</span>
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-amber-100">Kanji Hunt</div>
+                                        <div className="text-xs text-amber-500/80">Find words in the real world</div>
+                                    </div>
+                                </div>
+                                <span className="material-symbols-rounded text-amber-700/80">chevron_right</span>
+                            </div>
+                        </Link>
                     </div>
 
                     {/* Recent Activity */}

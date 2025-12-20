@@ -1,14 +1,24 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { VocabDetailModal } from "./vocab-detail-modal";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { processPendingVocab } from "@/actions/learn";
 
 export function VocabList({ items }: { items: any[] }) {
     const [selectedVocab, setSelectedVocab] = useState<any | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
+
+    // Hunt Detection
+    const huntWord = searchParams.get("hunt_word");
+    const huntXP = searchParams.get("hunt_xp");
+    const huntComplete = searchParams.get("hunt_complete");
+
+    // Close hunt msg after 5s or manually
+    const [showHuntMsg, setShowHuntMsg] = useState(!!huntWord);
 
     const [filter, setFilter] = useState<'all' | 'scan' | 'related'>('all');
 
@@ -46,6 +56,30 @@ export function VocabList({ items }: { items: any[] }) {
 
     return (
         <>
+            {/* HUNT SUCCESS BANNER */}
+            {showHuntMsg && huntWord && (
+                <div className="fixed top-24 left-4 right-4 z-[60] animate-in slide-in-from-top-4 fade-in duration-500" onClick={() => setShowHuntMsg(false)}>
+                    <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl p-4 shadow-2xl border border-white/20 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-20">
+                            <span className="material-symbols-rounded text-6xl text-white">celebration</span>
+                        </div>
+                        <div className="relative z-10 text-white">
+                            <div className="text-xs font-bold uppercase tracking-widest opacity-90 mb-1">Kanji Hunt Success!</div>
+                            <div className="text-2xl font-bold mb-1">Found "{huntWord}"</div>
+                            <div className="flex items-center gap-2 text-sm font-medium bg-black/20 self-start px-3 py-1 rounded-full w-fit">
+                                <span className="material-symbols-rounded text-base">bolt</span>
+                                +{huntXP} XP
+                            </div>
+                            {huntComplete && (
+                                <div className="mt-2 text-xs bg-white/20 px-2 py-1 rounded">
+                                    🏆 LIST COMPLETE! Bonus +{searchParams.get("hunt_bonus")} XP
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Floating Progress Pill */}
             {items.some(i => !i.detailed_data) && (
                 <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-4 fade-in">
@@ -95,7 +129,7 @@ export function VocabList({ items }: { items: any[] }) {
                             <div className="flex justify-between items-start mb-2">
                                 <div className="text-3xl font-bold text-zinc-50">{item.kanji_word}</div>
                                 <div className="text-xs font-mono uppercase tracking-widest text-zinc-500">
-                                    {isPending ? 'Processing...' : `Level ${item.srs_level}`}
+                                    {isPending ? 'Processing...' : `Level ${item.srs_level} `}
                                 </div>
                             </div>
                             <div className="text-amber-400 text-sm font-medium mb-1">{item.reading_kana}</div>
