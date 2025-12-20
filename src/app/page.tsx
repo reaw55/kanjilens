@@ -44,8 +44,53 @@ export default async function Home({ searchParams }: Props) {
   let capturesCount = 0;
 
   // 1. Fetch Profile Stats
-  const { data: profile } = await supabase.from("profiles").select("xp, streak, level").eq("id", user.id).single();
-  if (profile) stats = profile;
+  const { data: profile } = await supabase.from("profiles").select("xp, streak, level, last_active_at").eq("id", user.id).single();
+
+  if (profile) {
+    stats = profile;
+
+    // STREAK LOGIC
+    const lastActive = profile.last_active_at ? new Date(profile.last_active_at) : new Date(0);
+    const now = new Date();
+
+    // Normalize to dates (no time)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastDate = new Date(lastActive.getFullYear(), lastActive.getMonth(), lastActive.getDate());
+
+    // Calculate difference in days
+    const diffTime = Math.abs(today.getTime() - lastDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    let newStreak = stats.streak;
+    let shouldUpdate = false;
+
+    if (diffDays === 1) {
+      // Login is consecutive day -> Increment
+      newStreak += 1;
+      shouldUpdate = true;
+    } else if (diffDays > 1) {
+      // Missed a day -> Reset
+      // BUT if this is the very first login (diff big), start at 1
+      newStreak = 1;
+      shouldUpdate = true;
+    } else if (diffDays === 0) {
+      // Same day, do nothing usually
+      // But if last_active_at was missing (first run), we might update
+      if (!profile.last_active_at) shouldUpdate = true;
+    }
+
+    if (shouldUpdate) {
+      // Update DB
+      // Check if column exists by just trying to update it? 
+      // We assume 'last_active_at' exists as we requested it.
+      await supabase.from("profiles").update({
+        streak: newStreak,
+        last_active_at: new Date().toISOString()
+      }).eq("id", user.id);
+
+      stats.streak = newStreak;
+    }
+  }
 
   // 2. Fetch Due Vocabulary Count
   const { count: due } = await supabase
