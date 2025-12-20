@@ -119,17 +119,42 @@ export default function ScanPage({
                     <input type="hidden" name="fullText" value={ocrData?.text || ""} />
 
                     <div className="flex flex-wrap gap-2">
-                        {uniqueWords.map((w: any, i: number) => (
-                            <label key={i} className="cursor-pointer group">
-                                <input type="checkbox" name="words" value={w.description} className="peer hidden" />
-                                <span className="inline-block px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 transition-all peer-checked:bg-amber-500 peer-checked:text-zinc-900 peer-checked:border-amber-400 peer-checked:font-bold group-hover:bg-zinc-700">
-                                    {w.description}
-                                </span>
-                            </label>
-                        ))}
                         {uniqueWords.length === 0 && (
                             <div className="text-zinc-500 text-sm italic">No text detected. Try scanning a clearer image.</div>
                         )}
+
+                        {uniqueWords.map((w: any, i: number) => {
+                            // SPLIT LOGIC: Extract individual Kanji
+                            const wordText = w.description;
+                            const uniqueKanji = Array.from(new Set(wordText.split("").filter((char: string) => /[\u4e00-\u9faf\u3400-\u4dbf]/.test(char))));
+                            const hasSubItems = uniqueKanji.length > 0 && wordText.length > 1;
+
+                            return (
+                                <div key={i} className="flex flex-col gap-1">
+                                    {/* Main Word */}
+                                    <label className="cursor-pointer group">
+                                        <input type="checkbox" name="words" value={w.description} className="peer hidden" />
+                                        <span className="inline-block px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 transition-all peer-checked:bg-amber-500 peer-checked:text-zinc-900 peer-checked:border-amber-400 peer-checked:font-bold group-hover:bg-zinc-700">
+                                            {w.description}
+                                        </span>
+                                    </label>
+
+                                    {/* Component Kanji (if compound) */}
+                                    {hasSubItems && (uniqueKanji.length > 1 || uniqueKanji[0] !== wordText) && (
+                                        <div className="flex gap-2 pl-4 border-l-2 border-zinc-800 ml-2">
+                                            {uniqueKanji.map((k, kIdx) => (
+                                                <label key={`${i}-${kIdx}`} className="cursor-pointer group/sub">
+                                                    <input type="checkbox" name="words" value={k as string} className="peer hidden" />
+                                                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 text-sm transition-all peer-checked:bg-amber-500/20 peer-checked:text-amber-500 peer-checked:border-amber-500/50 peer-checked:font-bold group-hover/sub:border-zinc-600">
+                                                        {k as string}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <div className="mt-8">
