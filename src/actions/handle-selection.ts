@@ -6,20 +6,24 @@ import { redirect } from "next/navigation";
 export async function handleSelection(formData: FormData) {
     const words = formData.getAll("words") as string[];
     const captureId = formData.get("captureId") as string;
-    const fullText = formData.get("fullText") as string;
 
-    if (words.length === 0) {
-        return; // Or handle error
+    // We don't wait for generation here anymore.
+    // 1. Save Placeholders immediately
+    for (const word of words) {
+        // Check if exists first? Handled by saveVocabulary check or unique constraint?
+        // saveVocabulary handles duplicates/linking.
+        // We pass a dummy lesson object.
+        const placeholder = {
+            kanji: word,
+            reading: "Generating...", // Indicator for UI
+            meaning: "Processing definition...",
+            context_usage: { sentence: "...", english: "..." },
+            detailed_data: null // Pending Flag
+        };
+
+        await saveVocabulary(placeholder, captureId);
     }
 
-    // 1. Batch Generate (Single API Call)
-    const { lessons } = await generateBatchLessons(words, fullText);
-
-    if (lessons) {
-        // 2. Save / Link All
-        // We can run these DB writes in parallel as they are independent
-        await Promise.all(lessons.map(lesson => saveVocabulary(lesson, captureId)));
-    }
-
+    // 2. Redirect immediately
     redirect("/vocab");
 }

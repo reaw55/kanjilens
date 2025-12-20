@@ -21,7 +21,7 @@ export async function getQuizData() {
         .eq("user_id", user.id)
         .lte("next_review_at", now)
         .order("next_review_at", { ascending: true })
-        .limit(20);
+        .limit(5);
 
     // 2. Fetch Distractors (Random pool of other words)
     // In a real app, use a more efficient random query. Here we just fetch recent 50.

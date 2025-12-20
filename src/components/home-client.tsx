@@ -175,6 +175,12 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount }: Ho
                         <span className="text-[10px] font-medium">Map</span>
                     </button>
 
+                    {/* Quiz Tab */}
+                    <Link href="/quiz" className="flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200 text-zinc-500 hover:text-zinc-300">
+                        <span className="material-symbols-rounded text-2xl">sticky_note_2</span>
+                        <span className="text-[10px] font-medium">Quiz</span>
+                    </Link>
+
                     {/* Scan Trigger (Center FAB) */}
                     <div className="relative -mt-8 mx-2">
                         <button
@@ -189,6 +195,17 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount }: Ho
                             <span className="material-symbols-rounded text-3xl">photo_camera</span>
                         </button>
                     </div>
+
+                    {/* Vocab Tab (Targeting /vocab page directly or viewMode?) 
+                        If we use Link, it navigates away. The request is "access vocab list".
+                        Navigating away is fine, but maybe they want it integrated?
+                        The user said "redirect user to vocab page" in previous request.
+                        So a Link is appropriate.
+                    */}
+                    <Link href="/vocab" className="flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200 text-zinc-500 hover:text-zinc-300">
+                        <span className="material-symbols-rounded text-2xl">school</span>
+                        <span className="text-[10px] font-medium">Vocab</span>
+                    </Link>
 
                     {/* Dashboard Tab */}
                     <button

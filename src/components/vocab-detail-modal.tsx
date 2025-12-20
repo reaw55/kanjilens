@@ -68,10 +68,18 @@ export function VocabDetailModal({ vocab, onClose }: VocabDetailModalProps) {
 
                     {/* 1. HERO HEADER */}
                     <div className="flex flex-col items-center justify-center mb-8 mt-4">
-                        <div className="relative group">
+                        <div className="relative group w-full flex justify-center">
                             <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full opacity-50" />
-                            <div className="w-32 h-32 bg-zinc-900 rounded-[2rem] border border-white/10 shadow-2xl flex items-center justify-center relative overflow-hidden ring-1 ring-white/5">
-                                <h1 className="text-6xl font-bold bg-gradient-to-br from-white to-zinc-400 bg-clip-text text-transparent">
+                            <div className={cn(
+                                "bg-zinc-900 rounded-[2rem] border border-white/10 shadow-2xl flex items-center justify-center relative overflow-hidden ring-1 ring-white/5 transition-all duration-300",
+                                vocab.kanji_word.length > 1
+                                    ? "w-auto px-12 py-8 min-w-[120px]"
+                                    : "w-32 h-32"
+                            )}>
+                                <h1 className={cn(
+                                    "font-bold bg-gradient-to-br from-white to-zinc-400 bg-clip-text text-transparent text-center leading-tight",
+                                    vocab.kanji_word.length > 1 ? "text-4xl" : "text-6xl"
+                                )}>
                                     {vocab.kanji_word}
                                 </h1>
                             </div>
@@ -125,9 +133,26 @@ export function VocabDetailModal({ vocab, onClose }: VocabDetailModalProps) {
                                             <div className="text-xs text-zinc-500">{combo.meaning}</div>
                                         </div>
                                         {combo.targetKanji && (
-                                            <span className="text-[10px] bg-zinc-950 px-2 py-1 rounded text-zinc-600 border border-zinc-900">
+                                            <button
+                                                className="text-[10px] bg-zinc-950 px-2 py-1 rounded text-zinc-500 border border-zinc-900 hover:text-amber-400 hover:border-amber-900/50 transition-colors"
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (confirm(`Learn related word: ${combo.targetKanji}?`)) {
+                                                        const placeholder = {
+                                                            kanji: combo.targetKanji,
+                                                            reading: "...",
+                                                            meaning: "Loading...",
+                                                            context_usage: { sentence: "Related to " + vocab.kanji_word, english: "..." },
+                                                            detailed_data: null
+                                                        };
+                                                        await import("@/actions/learn").then(mod => mod.saveVocabulary(placeholder, null, "related"));
+                                                        onClose();
+                                                        window.location.reload();
+                                                    }
+                                                }}
+                                            >
                                                 Next: {combo.targetKanji}
-                                            </span>
+                                            </button>
                                         )}
                                     </div>
                                 ))}
@@ -167,6 +192,24 @@ export function VocabDetailModal({ vocab, onClose }: VocabDetailModalProps) {
                             </div>
                         )}
                     </section>
+
+                    {/* 5. ACTIONS */}
+                    <div className="mt-8 pt-8 border-t border-zinc-800 flex justify-center">
+                        <Button
+                            variant="destructive"
+                            className="bg-red-500/10 hover:bg-red-500/20 text-red-500 hover:text-red-400 border border-red-500/20"
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!confirm("Are you sure you want to delete this word?")) return;
+
+                                await import("@/actions/learn").then(mod => mod.deleteVocabulary(vocab.id));
+                                window.location.reload(); // Force hard reload to update list immediately
+                            }}
+                        >
+                            <span className="material-symbols-rounded mr-2 text-lg">delete</span>
+                            Remove Word
+                        </Button>
+                    </div>
 
                 </div>
             </div>

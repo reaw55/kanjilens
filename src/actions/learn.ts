@@ -17,6 +17,20 @@ const MOCK_LESSON = {
         sentence: "日本語を勉強しています。",
         reading: "Nihongo o benkyou shiteimasu.",
         english: "I am studying Japanese."
+    },
+    detailed_data: {
+        basicInfo: { meaning: "Japanese Language", radical: "言" },
+        readings: {
+            onyomi: { kana: "ニホンゴ", note: "Standard" },
+            kunyomi: { kana: "にほんご", note: "" }
+        },
+        combinations: [
+            { word: "日本", reading: "Nihon", meaning: "Japan", targetKanji: "本" }
+        ],
+        dialogue: [
+            { speaker: "A", japanese: "日本語わかりますか？", english: "Do you understand Japanese?" },
+            { speaker: "B", japanese: "はい、少し。", english: "Yes, a little." }
+        ]
     }
 };
 
@@ -39,23 +53,35 @@ export async function generateBatchLessons(words: string[], contextFullText: str
         .in("kanji_word", words);
 
     const existingMap = new Map(existingItems?.map(i => [i.kanji_word, i]) || []);
-    const wordsToLearn = words.filter(w => !existingMap.has(w));
+
+    // FILTER: Learn if (New) OR (Existing but Empty/Pending)
+    const wordsToLearn = words.filter(w => {
+        const ex = existingMap.get(w);
+        if (!ex) return true; // New
+        // If it exists but has no detailed_data, we treat it as "New" to generate
+        if (!ex.detailed_data || Object.keys(ex.detailed_data as object).length === 0) return true;
+        return false;
+    });
 
     const results: any[] = [];
 
-    // 2. Add Existing Items to results immediately
+    // 2. Add Existing Items (ONLY if fully populated)
     existingMap.forEach((item) => {
-        results.push({
-            kanji: item.kanji_word,
-            reading: item.reading_kana,
-            meaning: item.meaning_en,
-            context_usage: {
-                sentence: item.context_sentence_jp,
-                english: item.context_sentence_en
-            },
-            id: item.id, // Important for linking
-            existing: true
-        });
+        // Only return it as "done" if we aren't planning to relearn it
+        if (!wordsToLearn.includes(item.kanji_word)) {
+            results.push({
+                kanji: item.kanji_word,
+                reading: item.reading_kana,
+                meaning: item.meaning_en,
+                context_usage: {
+                    sentence: item.context_sentence_jp,
+                    english: item.context_sentence_en
+                },
+                id: item.id,
+                detailed_data: item.detailed_data,
+                existing: true
+            });
+        }
     });
 
     if (wordsToLearn.length === 0) {
@@ -82,41 +108,43 @@ export async function generateBatchLessons(words: string[], contextFullText: str
           
           TASK: Create a detailed "Vocabulary Card Drill" for each word.
           
-          STRICT JSON OUTPUT STRUCTURE (For each word key):
+          STRICT JSON OUTPUT STRUCTURE:
+          Return a JSON Object where keys are the requested words.
+          Example:
+          {
+            "Word1": { ... data ... },
+            "Word2": { ... data ... }
+          }
+
+          Data Structure for each word:
           {
             "currentKanji": "The Kanji itself",
             "basicInfo": {
                 "meaning": "English keywords separated by slashes",
-                "radical": "Root component (e.g., 气)"
+                "radical": "Root component"
             },
             "readings": {
-                "onyomi": { "kana": "Katakana reading", "note": "Usage note" },
-                "kunyomi": { "kana": "Hiragana reading", "note": "Usage note" }
+                "onyomi": { "kana": "Katakana", "note": "Note" },
+                "kunyomi": { "kana": "Hiragana", "note": "Note" }
             },
             "combinations": [
                 {
-                    "word": "Compound Word",
+                    "word": "Compound",
                     "reading": "Reading", 
                     "meaning": "Meaning",
-                    "targetKanji": "The OTHER kanji in the word to learn next (recursive)"
+                    "targetKanji": "Partner Kanji"
                 }
-                // Provide exactly 5 essential combinations
             ],
             "dialogue": [
-                { "speaker": "A", "japanese": "Sentence using the word", "english": "Translation" },
-                { "speaker": "B", "japanese": "Response using the word (if possible)", "english": "Translation" }
+                { "speaker": "A", "japanese": "JP Sentence", "english": "EN Translation" },
+                { "speaker": "B", "japanese": "JP Response", "english": "EN Translation" }
             ],
-            "context_usage": { // Keep this standard field for backward compat
-                "sentence": "One of the dialogue sentences",
+            "context_usage": {
+                "sentence": "Sentence from dialogue",
                 "reading": "Romaji reading",
                 "english": "Translation"
             }
           }
-           
-          STRICT RULES:
-          1. Use the JSON keys provided exactly.
-          2. Combinations MUST include "targetKanji" (the partner character).
-          3. Dialogue MUST be conversational (A/B).
         `;
 
         const completion = await openai.chat.completions.create({
@@ -131,7 +159,12 @@ export async function generateBatchLessons(words: string[], contextFullText: str
         const content = completion.choices[0].message.content;
         if (!content) throw new Error("No content");
 
-        const aiData = JSON.parse(content);
+        let aiData = JSON.parse(content);
+
+        // ROBUSTNESS: Handle case where AI returns the item directly for single-word queries
+        if (wordsToLearn.length === 1 && !aiData[wordsToLearn[0]] && (aiData.currentKanji || aiData.basicInfo)) {
+            aiData = { [wordsToLearn[0]]: aiData };
+        }
 
         // Merge AI results
         wordsToLearn.forEach(w => {
@@ -196,7 +229,7 @@ export async function generateLesson(word: string, contextFullText: string) {
     return { error: "Failed to generate lesson" };
 }
 
-export async function saveVocabulary(lesson: any, captureId: string) {
+export async function saveVocabulary(lesson: any, captureId: string | null, source: string = "scan") {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Unauthorized" };
@@ -215,20 +248,30 @@ export async function saveVocabulary(lesson: any, captureId: string) {
     }
 
     if (vocabId) {
-        // 2. EXISTING: Link to new capture (Many-to-Many)
-        // Try to insert into junction table if it exists
-        const { error: junctionError } = await supabase
-            .from("vocabulary_captures")
-            .insert({
-                vocabulary_id: vocabId,
-                capture_id: captureId,
-                user_id: user.id
-            });
+        // 2. EXISTING: Link to new capture (Many-to-Many) if captureId exists
+        if (captureId) {
+            const { error: junctionError } = await supabase
+                .from("vocabulary_captures")
+                .insert({
+                    vocabulary_id: vocabId,
+                    capture_id: captureId,
+                    user_id: user.id
+                });
+            // Ignore duplicate/policy errors for simplicity
+        }
 
-        if (junctionError) {
-            // 2b. Fallback for 1:1 schema (if migration not run)
-            // We just acknowledge the duplicate but can't link multiple
-            console.warn("Could not link multiple captures (Migration likely missing):", junctionError.message);
+        // Update detailed data if provided (Enrichment)
+        if (lesson.detailed_data) {
+            await supabase.from("vocabulary_items")
+                .update({
+                    detailed_data: lesson.detailed_data,
+                    meaning_en: lesson.meaning,
+                    reading_kana: lesson.reading,
+                    context_sentence_jp: lesson.context_usage?.sentence,
+                    context_sentence_en: lesson.context_usage?.english,
+                    // We don't overwrite source for existing items
+                })
+                .eq("id", vocabId);
         }
 
         return { success: true, merged: true };
@@ -239,15 +282,16 @@ export async function saveVocabulary(lesson: any, captureId: string) {
             .from("vocabulary_items")
             .insert({
                 user_id: user.id,
-                capture_id: captureId, // Keep for backward compatibility
+                capture_id: captureId || null, // Optional for related words
                 kanji_word: lesson.kanji,
                 reading_kana: lesson.reading,
                 meaning_en: lesson.meaning,
-                context_sentence_jp: lesson.context_usage.sentence,
-                context_sentence_en: lesson.context_usage.english,
+                context_sentence_jp: lesson.context_usage?.sentence,
+                context_sentence_en: lesson.context_usage?.english,
                 srs_level: 0,
                 next_review_at: new Date().toISOString(),
-                detailed_data: lesson.detailed_data || null // Save rich data
+                detailed_data: lesson.detailed_data || null, // Save rich data
+                source: source // Track where it came from
             })
             .select()
             .single();
@@ -257,22 +301,85 @@ export async function saveVocabulary(lesson: any, captureId: string) {
             return { error: "Failed to save vocabulary" };
         }
 
-        // Try to insert into junction table too
-        // Try to insert into junction table too
-        // Supabase typically returns { error } rather than throwing, but we check just in case
-        const { error: junctionError2 } = await supabase
-            .from("vocabulary_captures")
-            .insert({
+        // Link capture if exists
+        if (captureId) {
+            await supabase.from("vocabulary_captures").insert({
                 vocabulary_id: newVocab.id,
                 capture_id: captureId,
                 user_id: user.id
             });
-
-        if (junctionError2) {
-            // Ignore or log debug
-            // console.debug("Junction insert failed (optional):", junctionError2.message);
         }
 
         return { success: true };
     }
+}
+
+export async function processPendingVocab() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: pendingItems } = await supabase
+        .from("vocabulary_items")
+        .select("*")
+        .eq("user_id", user.id)
+        .is("detailed_data", null)
+        .limit(5);
+
+    if (!pendingItems || pendingItems.length === 0) {
+        return { success: true, count: 0 };
+    }
+
+    const processes = pendingItems.map(async (item) => {
+        let contextText = "Japanese Item";
+        if (item.capture_id) {
+            const { data: cap } = await supabase.from("captures").select("ocr_data").eq("id", item.capture_id).single();
+            if (cap?.ocr_data?.text) contextText = cap.ocr_data.text;
+        }
+
+        const result = await generateBatchLessons([item.kanji_word], contextText);
+
+        if (result.success && result.lessons && result.lessons.length > 0) {
+            const richLesson = result.lessons[0];
+            await supabase.from("vocabulary_items")
+                .update({
+                    reading_kana: richLesson.reading,
+                    meaning_en: richLesson.meaning,
+                    context_sentence_jp: richLesson.context_usage?.sentence,
+                    context_sentence_en: richLesson.context_usage?.english,
+                    detailed_data: richLesson.detailed_data
+                })
+                .eq("id", item.id);
+            return 1;
+        }
+        return 0;
+    });
+
+    const results = await Promise.all(processes);
+    const processedCount = results.reduce((a, b) => a + b, 0);
+
+    return { success: true, count: processedCount };
+}
+
+export async function deleteVocabulary(vocabId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+
+    // 1. Delete Junctions first (Cascade might handle this, but explicit is safer)
+    await supabase.from("vocabulary_captures").delete().eq("vocabulary_id", vocabId).eq("user_id", user.id);
+
+    // 2. Delete the Item
+    const { error } = await supabase
+        .from("vocabulary_items")
+        .delete()
+        .eq("id", vocabId)
+        .eq("user_id", user.id);
+
+    if (error) {
+        console.error("Delete Error", error);
+        return { error: "Failed to delete" };
+    }
+
+    return { success: true };
 }
