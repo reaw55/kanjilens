@@ -63,7 +63,7 @@ export default async function HuntPage() {
                             <div>
                                 <h2 className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-1">Current Mission</h2>
                                 <h3 className="text-2xl font-bold text-white">
-                                    {session.theme || "Street Signs"}: Mission {session.mission_number || session.level_number || 1}
+                                    {session.theme || "Street Signs"}
                                 </h3>
                             </div>
                             {progress === 100 && (
@@ -144,17 +144,19 @@ export default async function HuntPage() {
             </div>
 
             {/* Celebration Modal (Passive Scan Results) */}
-            {scanResult?.success && scanResult.findings?.length > 0 && (
-                <HuntCelebration
-                    newFindings={scanResult.findings}
-                    xpGained={scanResult.xpGained || 0}
-                    levelComplete={scanResult.levelComplete || false}
-                    bonusXP={scanResult.bonusXP || 0}
-                />
-            )}
+            {
+                scanResult?.success && scanResult.findings?.length > 0 && (
+                    <HuntCelebration
+                        newFindings={scanResult.findings}
+                        xpGained={scanResult.xpGained || 0}
+                        levelComplete={scanResult.levelComplete || false}
+                        bonusXP={scanResult.bonusXP || 0}
+                    />
+                )
+            }
 
             <BottomNav />
-        </div>
+        </div >
     );
 }
 

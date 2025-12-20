@@ -13,19 +13,22 @@ const LEVEL_1_WORDS = [
 ];
 
 async function generateHuntLevel(supabase: any, user: any, levelInfo: { nextMission: number }) {
-    // 1. Get ALL previously used words to avoid duplicates
+    // 1. Get ALL previously used words AND themes to avoid duplicates
     // We can select all target_words arrays and flat map them.
     const { data: pastSessions } = await supabase
         .from("kanji_hunt_sessions")
-        .select("target_words")
+        .select("target_words, theme")
         .eq("user_id", user.id);
 
     const usedWords = new Set<string>();
+    const usedThemes = new Set<string>();
+
     if (pastSessions) {
         pastSessions.forEach((s: any) => {
             if (Array.isArray(s.target_words)) {
                 s.target_words.forEach((w: string) => usedWords.add(w));
             }
+            if (s.theme) usedThemes.add(s.theme);
         });
     }
 
@@ -43,6 +46,7 @@ async function generateHuntLevel(supabase: any, user: any, levelInfo: { nextMiss
             2. Words: Provide exactly 6 COMMON Kanji words that match the theme.
             3. VISUAL: The words must be findable on SIGNS, LABELS, or PACKAGING in real life.
             4. UNIQUE: Do NOT use these words: ${JSON.stringify(Array.from(usedWords))}.
+            5. UNIQUE THEME: Do NOT use these themes: ${JSON.stringify(Array.from(usedThemes))}.
             
             Output JSON ONLY:
             {
