@@ -17,7 +17,7 @@ async function generateTranslation(text: string) {
                 { role: "system", content: "You are a translator. Translate the Japanese text to English. detailed, context-aware translation. If it's a menu/sign, describe it briefly." },
                 { role: "user", content: `Translate this text found on a sign/image:\n\n${text}` }
             ],
-            max_tokens: 300
+            max_completion_tokens: 300
         });
 
         return completion.choices[0].message.content;

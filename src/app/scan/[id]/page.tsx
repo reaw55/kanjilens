@@ -65,6 +65,9 @@ export default function ScanPage({
         return hasKanji;
     });
 
+    // Deduplicate words (User Request: "check for duplicate in the word selection too only show one")
+    const uniqueWords = Array.from(new Map(words.map((w: any) => [w.description, w])).values());
+
     return (
         <div className="min-h-screen bg-zinc-900 text-zinc-50 pb-20">
             {/* Header */}
@@ -85,7 +88,7 @@ export default function ScanPage({
                 {/* Overlay for Bounding Boxes - Simplified for MVP */}
                 <div className="absolute inset-0 pointer-events-none">
                     <div className="absolute bottom-4 left-4 right-4 text-xs text-amber-400 font-mono bg-black/60 p-2 rounded-lg backdrop-blur-sm">
-                        DETECTED {words.length} WORDS
+                        DETECTED {uniqueWords.length} WORDS
                     </div>
                 </div>
             </div>
@@ -114,7 +117,7 @@ export default function ScanPage({
                     <input type="hidden" name="fullText" value={ocrData?.text || ""} />
 
                     <div className="flex flex-wrap gap-2">
-                        {words.map((w: any, i: number) => (
+                        {uniqueWords.map((w: any, i: number) => (
                             <label key={i} className="cursor-pointer group">
                                 <input type="checkbox" name="words" value={w.description} className="peer hidden" />
                                 <span className="inline-block px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 transition-all peer-checked:bg-amber-500 peer-checked:text-zinc-900 peer-checked:border-amber-400 peer-checked:font-bold group-hover:bg-zinc-700">
@@ -122,7 +125,7 @@ export default function ScanPage({
                                 </span>
                             </label>
                         ))}
-                        {words.length === 0 && (
+                        {uniqueWords.length === 0 && (
                             <div className="text-zinc-500 text-sm italic">No text detected. Try scanning a clearer image.</div>
                         )}
                     </div>

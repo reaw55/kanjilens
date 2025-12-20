@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import React from "react";
 import { createPortal } from "react-dom";
 
 // Types corresponding to our JSON structure
@@ -35,9 +36,10 @@ type VocabDetailModalProps = {
     existingWords?: Set<string>;
     onJumpTo?: (word: string) => void;
     onClose: () => void;
+    associatedCaptureText?: string | null;
 };
 
-export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: VocabDetailModalProps) {
+export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, associatedCaptureText }: VocabDetailModalProps) {
     if (!vocab) return null;
 
     // Normalize Data (Handle both new rich structure and legacy/fallback)
@@ -53,7 +55,13 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: Vo
     const kunyomi = detailed.readings?.kunyomi ||
         (detailed.kanji_breakdown?.[0]?.kunyomi ? { kana: detailed.kanji_breakdown[0].kunyomi.join('/'), note: "" } : null);
 
-    if (typeof document === "undefined") return null;
+    // Portal Safety
+    const [container, setContainer] = React.useState<HTMLElement | null>(null);
+    React.useEffect(() => {
+        setContainer(document.body);
+    }, []);
+
+    if (!container) return null;
 
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
@@ -162,7 +170,12 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: Vo
                                                                 context_usage: { sentence: "Related to " + vocab.kanji_word, english: "..." },
                                                                 detailed_data: null
                                                             };
-                                                            await import("@/actions/learn").then(mod => mod.saveVocabulary(placeholder, null, "related"));
+                                                            const explanation = "Related to " + vocab.kanji_word;
+                                                            // SMART SOURCE: Check if this word was actually in the original text
+                                                            const isFoundInContext = associatedCaptureText && associatedCaptureText.includes(combo.targetKanji);
+                                                            const source = isFoundInContext ? "scan" : "related";
+
+                                                            await import("@/actions/learn").then(mod => mod.saveVocabulary(placeholder, null, source));
                                                             onClose();
                                                             window.location.reload();
                                                         }
@@ -231,6 +244,7 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: Vo
 
                 </div>
             </div>
-        </div>
+        </div>,
+        container
     );
 }

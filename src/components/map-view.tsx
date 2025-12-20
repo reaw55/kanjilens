@@ -67,18 +67,38 @@ export default function MapView() {
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [selectedCapture, setSelectedCapture] = useState<any>(null);
     const [currentZoom, setCurrentZoom] = useState<number>(13); // Default zoom
+    const [container, setContainer] = useState<HTMLElement | null>(null);
 
     useEffect(() => {
+        if (typeof document !== "undefined") {
+            setContainer(document.body);
+        }
         const supabase = createClient();
 
         async function fetchCaptures() {
-            const { data } = await supabase.from("captures").select("*").not("geo_lat", "is", null);
+            const { data } = await supabase
+                .from("captures")
+                .select("*, vocabulary_captures(vocabulary_items(kanji_word, reading_kana, meaning_en))")
+                .not("geo_lat", "is", null);
             if (data) {
                 // Deduplicate by image_hash (User Request: "if picture have the same hash do not show on map")
                 // We keep the FIRST occurrence of each hash
-                const uniqueCaptures = Array.from(
-                    new Map(data.map(item => [item.image_hash, item])).values()
-                );
+                // BUG FIX: Ensure we don't hide items that have NO hash (legacy or error)
+                const uniqueCaptures: any[] = [];
+                const seenHashes = new Set<string>();
+
+                data.forEach(item => {
+                    if (item.image_hash) {
+                        if (!seenHashes.has(item.image_hash)) {
+                            seenHashes.add(item.image_hash);
+                            uniqueCaptures.push(item);
+                        }
+                    } else {
+                        // Always keep items with no hash to be safe
+                        uniqueCaptures.push(item);
+                    }
+                });
+
                 setCaptures(uniqueCaptures);
             }
         }
@@ -220,7 +240,7 @@ export default function MapView() {
             </MapContainer>
 
             {/* Simple Lightbox Modal - Portal to Body to break out of stacking context */}
-            {selectedCapture && typeof document !== 'undefined' && createPortal(
+            {container && selectedCapture && createPortal(
                 <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCapture(null)}>
                     <div className="relative max-w-lg w-full max-h-[90dvh] overflow-y-auto bg-zinc-900 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 scrollbar-hide" onClick={e => e.stopPropagation()}>
 
@@ -236,7 +256,7 @@ export default function MapView() {
                         <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
-                                    <h3 className="text-xl font-bold text-white">Captured Text</h3>
+                                    <h3 className="text-xl font-bold text-white">Translation</h3>
                                     <p className="text-zinc-400 text-xs mt-1">
                                         {new Date(selectedCapture.created_at).toLocaleDateString()}
                                     </p>
@@ -246,25 +266,27 @@ export default function MapView() {
                                 </Button>
                             </div>
 
-                            {/* Display detected words if any (simple view) */}
+                            {/* Display content */}
                             <div className="space-y-4">
-                                {/* Translation */}
-                                {selectedCapture.translation && (
-                                    <div className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800">
-                                        <div className="text-amber-500 text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            <span className="material-symbols-rounded text-sm">translate</span>
-                                            Context
-                                        </div>
-                                        <div className="text-zinc-300 text-sm">
-                                            {selectedCapture.translation}
-                                        </div>
+                                {/* Translation - Main Content */}
+                                {selectedCapture.translation ? (
+                                    <div className="text-zinc-100 text-sm leading-relaxed">
+                                        {selectedCapture.translation}
+                                    </div>
+                                ) : (
+                                    <div className="text-zinc-500 text-sm italic">
+                                        No translation available.
                                     </div>
                                 )}
 
-                                <div>
-                                    <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">Detected Text</h4>
+                                {/* Original Text - Secondary */}
+                                <div className="pt-4 border-t border-zinc-800">
+                                    <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
+                                        <span className="material-symbols-rounded text-xs">image</span>
+                                        Original Text
+                                    </h4>
                                     {selectedCapture.ocr_data?.text ? (
-                                        <div className="text-zinc-300 text-sm italic line-clamp-3">
+                                        <div className="text-zinc-400 text-xs italic line-clamp-3">
                                             "{selectedCapture.ocr_data.text}"
                                         </div>
                                     ) : (
@@ -272,13 +294,31 @@ export default function MapView() {
                                     )}
                                 </div>
 
-                                {/* Learned Words Section - Would be fetched dynamically, but for now we link to detail */}
-                                {/* Note: Real fetching of 'learned from this image' requires a DB join on vocabulary_captures */}
-                                <div className="mt-2">
-                                    <div className="flex items-center gap-2 text-zinc-400 text-xs">
-                                        <span className="material-symbols-rounded text-sm">school</span>
-                                        <span>Click "View Details" to see learned words</span>
-                                    </div>
+                                {/* Learned Words Section */}
+                                <div className="pt-4 border-t border-zinc-800">
+                                    <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
+                                        <span className="material-symbols-rounded text-xs">school</span>
+                                        Learned Words
+                                    </h4>
+
+                                    {selectedCapture.vocabulary_captures && selectedCapture.vocabulary_captures.length > 0 ? (
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedCapture.vocabulary_captures.map((vc: any, i: number) => {
+                                                const vocab = vc.vocabulary_items;
+                                                if (!vocab) return null;
+                                                return (
+                                                    <div key={i} className="bg-zinc-800/80 px-2 py-1 rounded text-xs text-zinc-300 border border-zinc-700 flex items-center gap-2">
+                                                        <span className="text-amber-500 font-bold">{vocab.kanji_word}</span>
+                                                        <span className="text-zinc-500 opacity-70">{vocab.meaning_en}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="text-zinc-500 text-xs italic">
+                                            No words learned from this capture yet.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -290,7 +330,7 @@ export default function MapView() {
                         </div>
                     </div>
                 </div>,
-                document.body
+                container
             )}
 
             {/* Overlay Controls */}
@@ -299,5 +339,124 @@ export default function MapView() {
                 <p className="text-xs text-zinc-400">{captures.length} Locations Found</p>
             </div>
         </div>
+    );
+}
+
+function MapPopup({ capture, onClose, container }: { capture: any, onClose: () => void, container: HTMLElement }) {
+    const [translation, setTranslation] = useState(capture.translation);
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    useEffect(() => {
+        setTranslation(capture.translation);
+
+        // Auto-generate if missing and we have text
+        if (!capture.translation && capture.ocr_data?.text && !isGenerating) {
+            setIsGenerating(true);
+            import("@/actions/upload-capture").then(({ ensureCaptureTranslation }) => {
+                ensureCaptureTranslation(capture.id).then(res => {
+                    if (res.success && res.translation) {
+                        setTranslation(res.translation);
+                    }
+                    setIsGenerating(false);
+                });
+            });
+        }
+    }, [capture]);
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+            <div className="relative max-w-lg w-full max-h-[90dvh] overflow-y-auto bg-zinc-900 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 scrollbar-hide" onClick={e => e.stopPropagation()}>
+
+                <div className="relative aspect-[3/4] w-full bg-zinc-950">
+                    <Image
+                        src={capture.image_url}
+                        alt="Capture"
+                        fill
+                        className="object-contain"
+                    />
+                </div>
+
+                <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 className="text-xl font-bold text-white">Translation</h3>
+                            <p className="text-zinc-400 text-xs mt-1">
+                                {new Date(capture.created_at).toLocaleDateString()}
+                            </p>
+                        </div>
+                        <Button size="icon" variant="ghost" onClick={onClose}>
+                            <span className="material-symbols-rounded">close</span>
+                        </Button>
+                    </div>
+
+                    <div className="space-y-4">
+                        {/* Translation */}
+                        {translation ? (
+                            <div className="text-zinc-100 text-sm leading-relaxed animate-in fade-in">
+                                {translation}
+                            </div>
+                        ) : isGenerating ? (
+                            <div className="flex items-center gap-2 text-amber-500 text-sm animate-pulse">
+                                <span className="material-symbols-rounded animate-spin text-lg">autorenew</span>
+                                Generating translation...
+                            </div>
+                        ) : (
+                            <div className="text-zinc-500 text-sm italic">
+                                No translation available.
+                            </div>
+                        )}
+
+                        {/* Original Text */}
+                        <div className="pt-4 border-t border-zinc-800">
+                            <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
+                                <span className="material-symbols-rounded text-xs">image</span>
+                                Original Text
+                            </h4>
+                            {capture.ocr_data?.text ? (
+                                <div className="text-zinc-400 text-xs italic line-clamp-3">
+                                    "{capture.ocr_data.text}"
+                                </div>
+                            ) : (
+                                <span className="text-zinc-500 text-xs">No text detected</span>
+                            )}
+                        </div>
+
+                        {/* Learned Words */}
+                        <div className="pt-4 border-t border-zinc-800">
+                            <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
+                                <span className="material-symbols-rounded text-xs">school</span>
+                                Learned Words
+                            </h4>
+
+                            {capture.vocabulary_captures && capture.vocabulary_captures.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {capture.vocabulary_captures.map((vc: any, i: number) => {
+                                        const vocab = vc.vocabulary_items;
+                                        if (!vocab) return null;
+                                        return (
+                                            <div key={i} className="bg-zinc-800/80 px-2 py-1 rounded text-xs text-zinc-300 border border-zinc-700 flex items-center gap-2">
+                                                <span className="text-amber-500 font-bold">{vocab.kanji_word}</span>
+                                                <span className="text-zinc-500 opacity-70">{vocab.meaning_en}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="text-zinc-500 text-xs italic">
+                                    No words learned from this capture yet.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="mt-6">
+                        <Button className="w-full bg-amber-500 hover:bg-amber-600 text-black font-bold" onClick={() => window.location.href = `/scan/${capture.id}`}>
+                            View Details & Learn
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        container
     );
 }

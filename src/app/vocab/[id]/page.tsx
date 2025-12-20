@@ -35,11 +35,16 @@ export default function VocabDetailPage({ params }: { params: Promise<{ id: stri
         async function fetchData() {
             const { data, error } = await supabase
                 .from("vocabulary_items")
-                .select("*")
+                .select("*, vocabulary_captures(capture_id, captures(ocr_data))")
                 .eq("id", id)
                 .single();
 
-            if (data) setVocab(data);
+            if (data) {
+                // Flatten the capture data to get the text easily
+                // We take the first associated capture's text as the "context"
+                const associatedText = data.vocabulary_captures?.[0]?.captures?.ocr_data?.text || null;
+                setVocab({ ...data, associatedText });
+            }
             setLoading(false);
         }
         fetchData();
