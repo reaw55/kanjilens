@@ -16,11 +16,7 @@ const LEVEL_1_WORDS = [
     "準備中" // junbichuu - Preparation/Closed
 ];
 
-export async function getCurrentHunt() {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { error: "Unauthorized" };
-
+async function ensureSession(supabase: any, user: any) {
     // 1. Try to find active session
     const { data: activeSession } = await supabase
         .from("kanji_hunt_sessions")
@@ -29,9 +25,7 @@ export async function getCurrentHunt() {
         .eq("is_active", true)
         .single();
 
-    if (activeSession) {
-        return { success: true, session: activeSession };
-    }
+    if (activeSession) return activeSession;
 
     // 2. Create new session if none exists
     const { data: newSession, error } = await supabase
@@ -47,10 +41,21 @@ export async function getCurrentHunt() {
 
     if (error) {
         console.error("Create Hunt Error:", error);
-        return { error: "Failed to start hunt" };
+        return null;
     }
 
-    return { success: true, session: newSession };
+    return newSession;
+}
+
+export async function getCurrentHunt() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+
+    const session = await ensureSession(supabase, user);
+    if (!session) return { error: "Failed to load session" };
+
+    return { success: true, session };
 }
 
 export async function checkHuntMatch(scannedWord: string) {
@@ -58,24 +63,20 @@ export async function checkHuntMatch(scannedWord: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Unauthorized" };
 
-    // 1. Get active session
-    const { data: session } = await supabase
-        .from("kanji_hunt_sessions")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .single();
+    const cleanWord = scannedWord.trim();
 
+    // 1. Get (or create) active session
+    // This ensures we don't miss matches just because the user didn't visit the dashboard first
+    const session = await ensureSession(supabase, user);
     if (!session) return { match: false };
 
     // 2. Check match
-    // Simple exact match for now. Could be fuzzy later.
     const targets = session.target_words as string[];
     const found = session.found_words as string[];
 
-    if (targets.includes(scannedWord) && !found.includes(scannedWord)) {
+    if (targets.includes(cleanWord) && !found.includes(cleanWord)) {
         // MATCH FOUND! 
-        const newFound = [...found, scannedWord];
+        const newFound = [...found, cleanWord];
 
         // Update Session
         await supabase
@@ -84,30 +85,163 @@ export async function checkHuntMatch(scannedWord: string) {
             .eq("id", session.id);
 
         // Award XP (e.g., 50 XP per find)
-        await supabase.rpc("increment_xp", { amount: 50, row_id: user.id }); // Assuming rpc or direct update
-
-        // Fallback if RPC doesn't exist, manual update
-        const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
-        if (profile) {
-            await supabase.from("profiles").update({ xp: (profile.xp || 0) + 50 }).eq("id", user.id);
+        // Check if RPC exists, catch error if not
+        try {
+            const { error: rpcError } = await supabase.rpc("increment_xp", { amount: 50, row_id: user.id });
+            if (rpcError) throw rpcError;
+        } catch (e) {
+            // Fallback manual update
+            const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
+            if (profile) {
+                await supabase.from("profiles").update({ xp: (profile.xp || 0) + 50 }).eq("id", user.id);
+            }
         }
 
         // Check completion
-        if (newFound.length === targets.length) {
+        const isLevelComplete = newFound.length >= targets.length;
+
+        if (isLevelComplete) {
             // Level Complete! Bonus XP
-            await supabase.from("profiles").update({ xp: (profile?.xp || 0) + 50 + 500 }).eq("id", user.id); // +50 for last word, +500 bonus
+            try {
+                // +500 Bonus
+                const { error: rpcError } = await supabase.rpc("increment_xp", { amount: 500, row_id: user.id });
+                if (rpcError) throw rpcError;
+            } catch (e) {
+                const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
+                if (profile) {
+                    await supabase.from("profiles").update({ xp: (profile.xp || 0) + 500 }).eq("id", user.id);
+                }
+            }
 
-            // Mark complete, maybe start new one implicitly next time
-            await supabase
-                .from("kanji_hunt_sessions")
-                .update({ is_active: false })
-                .eq("id", session.id);
+            // Mark complete - WE DO NOT AUTO CLOSE anymore, user must click "Next Level"
+            // This prevents the UI from resetting immediately.
+            // await supabase.from("kanji_hunt_sessions").update({ is_active: false }).eq("id", session.id);
 
-            return { match: true, word: scannedWord, xp: 50, levelComplete: true, bonusXP: 500 };
+            return { match: true, word: cleanWord, xp: 50, levelComplete: true, bonusXP: 500 };
         }
 
-        return { match: true, word: scannedWord, xp: 50, levelComplete: false };
+        return { match: true, word: cleanWord, xp: 50, levelComplete: false };
     }
 
     return { match: false };
+}
+
+export async function advanceLevel() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+
+    // Find the completed active session
+    const { data: session } = await supabase
+        .from("kanji_hunt_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .single();
+
+    if (session) {
+        // Archive it
+        await supabase
+            .from("kanji_hunt_sessions")
+            .update({ is_active: false })
+            .eq("id", session.id);
+    }
+
+    // The next call to getCurrentHunt will create a fresh one
+    return { success: true };
+}
+
+export async function scanRecentCapturesForHunt() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+
+    // 1. Get Session
+    const session = await ensureSession(supabase, user);
+    if (!session) return { error: "No session" };
+
+    const targets = session.target_words as string[];
+    const found = session.found_words as string[];
+    const missing = targets.filter(t => !found.includes(t));
+
+    if (missing.length === 0) return { findings: [] };
+
+    // 2. Fetch Recent Captures (Last 20)
+    const { data: captures } = await supabase
+        .from("captures")
+        .select("ocr_data")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .not("ocr_data", "is", null)
+        .limit(20);
+
+    if (!captures || captures.length === 0) return { findings: [] };
+
+    // 3. Check for matches
+    const newFindings: string[] = [];
+
+    // Create a big text blob or check individually? Individually is safer for context but blob is faster.
+    // Let's check string inclusion.
+    for (const target of missing) {
+        if (newFindings.includes(target)) continue; // Already found in this loop
+
+        // Check all captures
+        for (const cap of captures) {
+            const text = cap.ocr_data?.text || "";
+            if (text.includes(target)) {
+                newFindings.push(target);
+                break; // Found this target, move to next
+            }
+        }
+    }
+
+    if (newFindings.length === 0) return { findings: [] };
+
+    // 4. Update Session (Bulk Update)
+    const updatedFound = [...found, ...newFindings];
+
+    await supabase
+        .from("kanji_hunt_sessions")
+        .update({ found_words: updatedFound })
+        .eq("id", session.id);
+
+    // 5. Award XP (Bulk)
+    const xpAmount = newFindings.length * 50;
+    try {
+        const { error: rpcError } = await supabase.rpc("increment_xp", { amount: xpAmount, row_id: user.id });
+        if (rpcError) throw rpcError;
+    } catch (e) {
+        const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
+        if (profile) {
+            await supabase.from("profiles").update({ xp: (profile.xp || 0) + xpAmount }).eq("id", user.id);
+        }
+    }
+
+    // 6. Check Completion
+    const isLevelComplete = updatedFound.length >= targets.length;
+    let bonus = 0;
+
+    if (isLevelComplete) {
+        bonus = 500;
+        try {
+            const { error: rpcError } = await supabase.rpc("increment_xp", { amount: bonus, row_id: user.id });
+            if (rpcError) throw rpcError;
+        } catch (e) {
+            const { data: profile } = await supabase.from("profiles").select("xp").eq("id", user.id).single();
+            if (profile) {
+                await supabase.from("profiles").update({ xp: (profile.xp || 0) + bonus }).eq("id", user.id);
+            }
+        }
+
+        // DO NOT AUTO CLOSE
+        // await supabase.from("kanji_hunt_sessions").update({ is_active: false }).eq("id", session.id);
+    }
+
+    return {
+        success: true,
+        findings: newFindings,
+        xpGained: xpAmount,
+        levelComplete: isLevelComplete,
+        bonusXP: bonus
+    };
 }
