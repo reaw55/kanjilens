@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import React from "react";
 import { createPortal } from "react-dom";
+import { createClient } from "@/utils/supabase/client";
 
 // Types corresponding to our JSON structure
 type DetailedData = {
@@ -42,8 +43,69 @@ type VocabDetailModalProps = {
 export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, associatedCaptureText }: VocabDetailModalProps) {
     if (!vocab) return null;
 
+    // LOCAL STATE for Realtime Updates
+    const [internalVocab, setInternalVocab] = React.useState(vocab);
+
+    // Sync init if prop changes significantly
+    React.useEffect(() => {
+        // If ID changed OR (we are missing data AND the new prop has data)
+        // This ensures that if router.refresh() happens in parent and passes down fresh data, we update.
+        if (
+            vocab.id !== internalVocab.id ||
+            (!internalVocab.detailed_data && vocab.detailed_data)
+        ) {
+            console.log("Syncing internal vocab from props:", vocab);
+            setInternalVocab(vocab);
+        }
+    }, [vocab, internalVocab.id, internalVocab.detailed_data]);
+
+    // Realtime Subscription for pending items
+    React.useEffect(() => {
+        if (!internalVocab.detailed_data || internalVocab.status === 'learning') {
+            const supabase = createClient();
+            console.log(`Setting up Realtime for ID: ${internalVocab.id}`);
+
+            const channel = supabase
+                .channel(`vocab-${internalVocab.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'UPDATE',
+                        schema: 'public',
+                        table: 'vocabulary_items',
+                        filter: `id=eq.${internalVocab.id}`
+                    },
+                    async (payload) => {
+                        console.log("Realtime Update Signal Received:", payload);
+
+                        // FETCH FRESH DATA immediately to avoid payload size limits/issues
+                        const { data: freshData, error } = await supabase
+                            .from("vocabulary_items")
+                            .select("*")
+                            .eq("id", internalVocab.id)
+                            .single();
+
+                        if (freshData && !error) {
+                            console.log("Refetched fresh data:", freshData);
+                            setInternalVocab(freshData);
+                        } else {
+                            console.error("Failed to refetch data:", error);
+                        }
+                    }
+                )
+                .subscribe((status) => {
+                    console.log(`Realtime Subscription Status for ${internalVocab.id}:`, status);
+                });
+
+            return () => {
+                supabase.removeChannel(channel);
+            };
+        }
+    }, [internalVocab.id, internalVocab.detailed_data, internalVocab.status]);
+
+
     // Normalize Data (Handle both new rich structure and legacy/fallback)
-    const detailed = (vocab.detailed_data as DetailedData) || {};
+    const detailed = (internalVocab.detailed_data as DetailedData) || {};
 
     // Helper to get Combinations
     // Support both new `combinations` root key and old `kanji_breakdown[].combinations`
@@ -93,12 +155,12 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
                                     "font-bold bg-gradient-to-br from-white to-zinc-400 bg-clip-text text-transparent text-center leading-tight",
                                     vocab.kanji_word.length > 1 ? "text-4xl" : "text-6xl"
                                 )}>
-                                    {vocab.kanji_word}
+                                    {internalVocab.kanji_word}
                                 </h1>
                             </div>
                         </div>
-                        <p className="mt-4 text-xl font-medium text-amber-500 tracking-wide">{vocab.reading_kana}</p>
-                        <p className="text-zinc-400 font-light mt-1">{vocab.meaning_en}</p>
+                        <p className="mt-4 text-xl font-medium text-amber-500 tracking-wide">{internalVocab.reading_kana}</p>
+                        <p className="text-zinc-400 font-light mt-1">{internalVocab.meaning_en}</p>
 
                         {/* Basic Info Pill - Radical removed as requested */}
                         {/* 
@@ -218,8 +280,8 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
                             </div>
                         ) : (
                             <div className="p-4 bg-zinc-900 rounded-xl border border-zinc-800">
-                                <p className="font-medium text-zinc-200 mb-1">{vocab.context_sentence_jp}</p>
-                                <p className="text-xs text-zinc-500">{vocab.context_sentence_en}</p>
+                                <p className="font-medium text-zinc-200 mb-1">{internalVocab.context_sentence_jp}</p>
+                                <p className="text-xs text-zinc-500">{internalVocab.context_sentence_en}</p>
                             </div>
                         )}
                     </section>
@@ -233,7 +295,7 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
                                 e.stopPropagation();
                                 if (!confirm("Are you sure you want to delete this word?")) return;
 
-                                await import("@/actions/learn").then(mod => mod.deleteVocabulary(vocab.id));
+                                await import("@/actions/learn").then(mod => mod.deleteVocabulary(internalVocab.id));
                                 window.location.reload(); // Force hard reload to update list immediately
                             }}
                         >

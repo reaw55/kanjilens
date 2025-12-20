@@ -14,6 +14,8 @@ const MapView = dynamic(() => import("@/components/map-view"), {
     loading: () => <div className="h-full w-full bg-zinc-950 animate-pulse" />
 });
 
+import { BottomNav } from "./bottom-nav";
+
 type HomeClientProps = {
     user: any;
     profile: any;
@@ -24,15 +26,20 @@ type HomeClientProps = {
     };
     dueCount: number;
     capturesCount: number;
+    initialMode: string;
 };
 
 type ViewMode = 'map' | 'scan' | 'dashboard';
 
-export function HomeClient({ user, profile, stats, dueCount, capturesCount }: HomeClientProps) {
-    // Default to Map if user has captures, otherwise Dashboard (to prompt first scan)
-    const [viewMode, setViewMode] = useState<ViewMode>(
-        capturesCount > 0 ? 'map' : 'dashboard'
-    );
+export function HomeClient({ user, profile, stats, dueCount, capturesCount, initialMode }: HomeClientProps) {
+    const [viewMode, setViewMode] = useState<ViewMode>(initialMode as ViewMode);
+
+    // Sync with prop updates (navigation from BottomNav)
+    useEffect(() => {
+        if (initialMode) {
+            setViewMode(initialMode as ViewMode);
+        }
+    }, [initialMode]);
 
     return (
         <div className="relative h-[100dvh] w-full overflow-hidden bg-zinc-950 text-zinc-50">
@@ -177,67 +184,7 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount }: Ho
             </main>
 
             {/* 4. Bottom Navigation Bar */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm">
-                <nav className="bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl p-2 flex justify-between items-center relative">
-
-                    {/* Map Tab */}
-                    <button
-                        onClick={() => setViewMode('map')}
-                        className={cn(
-                            "flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200",
-                            viewMode === 'map' ? "text-amber-500 bg-white/5" : "text-zinc-500 hover:text-zinc-300"
-                        )}
-                    >
-                        <span className={cn("material-symbols-rounded text-2xl", viewMode === 'map' && "fill-icon")}>map</span>
-                        <span className="text-[10px] font-medium">Map</span>
-                    </button>
-
-                    {/* Quiz Tab */}
-                    <Link href="/quiz" className="flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200 text-zinc-500 hover:text-zinc-300">
-                        <span className="material-symbols-rounded text-2xl">sticky_note_2</span>
-                        <span className="text-[10px] font-medium">Quiz</span>
-                    </Link>
-
-                    {/* Scan Trigger (Center FAB) */}
-                    <div className="relative -mt-8 mx-2">
-                        <button
-                            onClick={() => setViewMode('scan')}
-                            className={cn(
-                                "h-16 w-16 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/20 transition-all duration-300 border-4 border-zinc-900",
-                                viewMode === 'scan'
-                                    ? "bg-amber-500 text-zinc-900 rotate-0"
-                                    : "bg-zinc-800 text-white hover:bg-zinc-700 hover:scale-105"
-                            )}
-                        >
-                            <span className="material-symbols-rounded text-3xl">photo_camera</span>
-                        </button>
-                    </div>
-
-                    {/* Vocab Tab (Targeting /vocab page directly or viewMode?) 
-                        If we use Link, it navigates away. The request is "access vocab list".
-                        Navigating away is fine, but maybe they want it integrated?
-                        The user said "redirect user to vocab page" in previous request.
-                        So a Link is appropriate.
-                    */}
-                    <Link href="/vocab" className="flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200 text-zinc-500 hover:text-zinc-300">
-                        <span className="material-symbols-rounded text-2xl">school</span>
-                        <span className="text-[10px] font-medium">Vocab</span>
-                    </Link>
-
-                    {/* Dashboard Tab */}
-                    <button
-                        onClick={() => setViewMode('dashboard')}
-                        className={cn(
-                            "flex-1 flex flex-col items-center justify-center gap-1 h-14 rounded-xl transition-all duration-200",
-                            viewMode === 'dashboard' ? "text-amber-500 bg-white/5" : "text-zinc-500 hover:text-zinc-300"
-                        )}
-                    >
-                        <span className={cn("material-symbols-rounded text-2xl", viewMode === 'dashboard' && "fill-icon")}>grid_view</span>
-                        <span className="text-[10px] font-medium">Home</span>
-                    </button>
-
-                </nav>
-            </div>
+            <BottomNav />
         </div>
     );
 }

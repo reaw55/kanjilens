@@ -22,6 +22,19 @@ export function VocabList({ items }: { items: any[] }) {
 
     const [filter, setFilter] = useState<'all' | 'scan' | 'related'>('all');
 
+    // Auto-open modal from query param
+    useEffect(() => {
+        const openId = searchParams.get("open");
+        if (openId && items.length > 0) {
+            const target = items.find(i => i.id === openId);
+            if (target) {
+                setSelectedVocab(target);
+                // Optional: Clear URL param so refresh doesn't re-open?
+                // window.history.replaceState(null, '', '/vocab');
+            }
+        }
+    }, [searchParams, items]);
+
     useEffect(() => {
         const hasPending = items.some(i => !i.detailed_data);
         if (hasPending && !isProcessing) {
@@ -30,13 +43,31 @@ export function VocabList({ items }: { items: any[] }) {
             const runProcessor = async () => {
                 const res = await processPendingVocab();
                 if (res.success && res.count > 0) {
-                    router.refresh();
+                    router.refresh(); // This might trigger re-render and effect again
                 }
-                setIsProcessing(false);
+
+                // THROTTLE: Only allow next check after 3 seconds
+                setTimeout(() => {
+                    setIsProcessing(false);
+                }, 3000);
             };
             runProcessor();
         }
     }, [items, isProcessing, router]);
+
+    // SYNC SELECTED: If items update (via refresh), update the selected object too so it doesn't get stale
+    useEffect(() => {
+        if (selectedVocab) {
+            const fresh = items.find(i => i.id === selectedVocab.id);
+            if (fresh && JSON.stringify(fresh) !== JSON.stringify(selectedVocab)) {
+                // Update local selection if the list item has changed (e.g. from "pending" to "done")
+                // BUT: If the Modal has its own realtime listener, this might compete.
+                // Actually, Modal handles its own internal state now, so this is less critical for the *content* of the modal,
+                // but helps if we close and re-open.
+                setSelectedVocab(fresh);
+            }
+        }
+    }, [items, selectedVocab]);
 
     const filteredItems = items.filter(item => {
         if (filter === 'all') return true;
@@ -129,7 +160,7 @@ export function VocabList({ items }: { items: any[] }) {
                             <div className="flex justify-between items-start mb-2">
                                 <div className="text-3xl font-bold text-zinc-50">{item.kanji_word}</div>
                                 <div className="text-xs font-mono uppercase tracking-widest text-zinc-500">
-                                    {isPending ? 'Processing...' : `Level ${item.srs_level} `}
+                                    {isPending ? 'Processing...' : ''}
                                 </div>
                             </div>
                             <div className="text-amber-400 text-sm font-medium mb-1">{item.reading_kana}</div>

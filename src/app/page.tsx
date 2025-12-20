@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { HomeClient } from "@/components/home-client";
 
-export default async function Home() {
+type Props = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
+
+export default async function Home({ searchParams }: Props) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -81,6 +85,9 @@ export default async function Home() {
     stats.level = calculatedStats.currentLevel;
   }
 
+  const params = await searchParams;
+  const initialMode = (params.mode as string) || (capturesCount > 0 ? 'map' : 'dashboard');
+
   return (
     <HomeClient
       user={user}
@@ -88,6 +95,7 @@ export default async function Home() {
       stats={calculatedStats}
       dueCount={dueCount}
       capturesCount={capturesCount}
+      initialMode={initialMode}
     />
   );
 }
