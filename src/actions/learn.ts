@@ -356,7 +356,7 @@ export async function processPendingVocab() {
     });
 
     const results = await Promise.all(processes);
-    const processedCount = results.reduce((a, b) => a + b, 0);
+    const processedCount = results.reduce((a: number, b: number) => a + b, 0);
 
     return { success: true, count: processedCount };
 }
