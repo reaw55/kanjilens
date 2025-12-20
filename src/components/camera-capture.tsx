@@ -11,100 +11,9 @@ export function CameraCapture() {
     const [isUploading, setIsUploading] = useState(false);
     const [preview, setPreview] = useState<string | null>(null);
     const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+    const [browserLocation, setBrowserLocation] = useState<{ lat: number; lng: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
-
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const objectUrl = URL.createObjectURL(file);
-            setPreview(objectUrl);
-            setLocation(null); // Reset location before attempting to extract new one
-
-            try {
-                // Extract EXIF Data
-                const ExifReader = (await import("exifreader")).default;
-                const tags = await ExifReader.load(file);
-
-                // Safe parsing helper
-                if (tags && tags['GPSLatitude'] && tags['GPSLongitude']) {
-                    // Note: formatting complicated GPS tags is tricky. 
-                    // Ideally we use a library or robust helper. 
-                    // For MVP, checking if 'description' (often decimal in some readers) or 'value' exists.
-
-                    // ExifReader's `description` field for GPS is a number (float) in newer versions if parsed?
-                    // No, it's usually formatted DMS string like "35, 40.5, 20.1".
-                    // But user wants "use... only if there is none do not report".
-                    // Let's assume a simplified approach:
-                    // If we can't easily parse, we default to null (fail open).
-
-                    // However, not providing ANY location when image HAS it is bad.
-                    // Let's rely on basic ExifReader behavior. 
-                    // If tags['GPSLatitude'].description is a number, use it.
-                    // If it is a string and simple split works, use it.
-                    // Otherwise, skip.
-
-                    // Let's try attempting to read the raw `value` array [degrees, minutes, seconds]
-                    // value: [35, 40, 20]
-
-                    // Helper to Convert DMS to Decimal
-                    const toDecimal = (gpsTag: any) => {
-                        if (!gpsTag || !gpsTag.value || gpsTag.value.length < 3) return null;
-                        const d = gpsTag.value[0][0] / gpsTag.value[0][1];
-                        const m = gpsTag.value[1][0] / gpsTag.value[1][1];
-                        const s = gpsTag.value[2][0] / gpsTag.value[2][1];
-                        return d + (m / 60) + (s / 3600);
-                    };
-
-                    const lat = toDecimal(tags['GPSLatitude']);
-                    const lng = toDecimal(tags['GPSLongitude']);
-
-                    if (lat !== null && lng !== null) {
-                        // Fix Ref (N/S/E/W)
-                        // ExifReader usage varies. Let's do a loose check.
-                        // If tags['GPSLatitudeRef'].description starts with S...
-                        let finalLat = lat;
-                        let finalLng = lng;
-
-                        if (tags['GPSLatitudeRef']?.description?.startsWith('S')) finalLat = -lat;
-                        if (tags['GPSLongitudeRef']?.description?.startsWith('W')) finalLng = -lng;
-
-                        setLocation({ lat: finalLat, lng: finalLng });
-                    }
-                }
-            } catch (err) {
-                console.warn("EXIF extraction failed (failing open)", err);
-                // Fail open: location remains null
-            }
-        }
-    };
-
-    const handleUpload = async () => {
-        if (!fileInputRef.current?.files?.[0]) return;
-
-        setIsUploading(true);
-        const formData = new FormData();
-        formData.append("file", fileInputRef.current.files[0]);
-        if (location) {
-            formData.append("lat", location.lat.toString());
-            formData.append("lng", location.lng.toString());
-        }
-
-        const result = await uploadCapture(formData);
-
-        if (result.error) {
-            alert(result.error);
-            setIsUploading(false);
-        } else {
-            // Success! Redirect to the scan result page
-            router.push(`/scan/${result.captureId}`);
-            // We don't need to reset preview here as we are navigating away
-        }
-    };
-
-    const [browserLocation, setBrowserLocation] = useState<{ lat: number; lng: number } | null>(null);
-
-    // ... existing refs ...
 
     const triggerCamera = () => {
         // 1. Try to get current location from Browser immediately
@@ -170,6 +79,29 @@ export function CameraCapture() {
             } catch (err) {
                 console.warn("EXIF extraction failed, keeping browser location if any", err);
             }
+        }
+    };
+
+    const handleUpload = async () => {
+        if (!fileInputRef.current?.files?.[0]) return;
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append("file", fileInputRef.current.files[0]);
+        if (location) {
+            formData.append("lat", location.lat.toString());
+            formData.append("lng", location.lng.toString());
+        }
+
+        const result = await uploadCapture(formData);
+
+        if (result.error) {
+            alert(result.error);
+            setIsUploading(false);
+        } else {
+            // Success! Redirect to the scan result page
+            router.push(`/scan/${result.captureId}`);
+            // We don't need to reset preview here as we are navigating away
         }
     };
 
