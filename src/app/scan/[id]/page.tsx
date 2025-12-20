@@ -1,8 +1,7 @@
-
 "use client";
 
 import { handleSelection } from "@/actions/handle-selection";
-import Image from "next/image";
+import { ImageHighlighter } from "@/components/scan/image-highlighter";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { use, useEffect, useState } from "react";
@@ -17,6 +16,7 @@ export default function ScanPage({
     const { id } = use(params);
     const [capture, setCapture] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [filteredWords, setFilteredWords] = useState<any[]>([]);
 
     useEffect(() => {
         const supabase = createClient();
@@ -47,26 +47,28 @@ export default function ScanPage({
         fetchCapture();
     }, [id]);
 
-    if (loading) return <div className="p-8 text-center text-zinc-500">Loading capture...</div>;
-    if (!capture) return <div className="p-8 text-center text-red-400">Capture not found.</div>;
-
-    const ocrData = capture.ocr_data as any; // Using any for MVP flexibility
+    const ocrData = capture?.ocr_data as any; // Safe access
 
     // FILTER LOGIC:
     // 1. Must contain at least one Kanji ([\u4e00-\u9faf\u3400-\u4dbf])
-    // This satisfies:
-    // - Removes "non-japanese" (English, numbers etc have no Kanji)
-    // - Removes "ALL hiragana" (Pure hiragana has no Kanji)
-    // - Keeps "hiragana and kanji mix" (Has Kanji + Hiragana)
-    // - Keeps "kanji alone" (Has Kanji)
     const words = (ocrData?.detections?.slice(1) || []).filter((w: any) => {
         const text = w.description;
         const hasKanji = /[\u4e00-\u9faf\u3400-\u4dbf]/.test(text);
         return hasKanji;
     });
 
+    useEffect(() => {
+        if (words && words.length > 0) {
+            setFilteredWords(words);
+        }
+    }, [capture]); // Reset when data loads
+
+    if (loading) return <div className="p-8 text-center text-zinc-500">Loading capture...</div>;
+    if (!capture) return <div className="p-8 text-center text-red-400">Capture not found.</div>;
+
+
     // Deduplicate words (User Request: "check for duplicate in the word selection too only show one")
-    const uniqueWords = Array.from(new Map(words.map((w: any) => [w.description, w])).values());
+    const uniqueWords = Array.from(new Map(filteredWords.map((w: any) => [w.description, w])).values());
 
     return (
         <div className="min-h-screen bg-zinc-900 text-zinc-50 pb-20">
@@ -78,17 +80,17 @@ export default function ScanPage({
             </div>
 
             <div className="relative w-full h-[60vh] bg-zinc-950">
-                <Image
-                    src={capture.image_url}
-                    alt="Original Capture"
-                    fill
-                    className="object-contain img-optimized"
+                <ImageHighlighter
+                    imageUrl={capture.image_url}
+                    detections={words} // Pass pre-filtered kanji words to optimize
+                    onFilter={(filtered) => setFilteredWords(filtered)}
                 />
 
                 {/* Overlay for Bounding Boxes - Simplified for MVP */}
-                <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute bottom-4 left-4 right-4 text-xs text-amber-400 font-mono bg-black/60 p-2 rounded-lg backdrop-blur-sm">
-                        DETECTED {uniqueWords.length} WORDS
+                <div className="absolute inset-x-0 bottom-0 pointer-events-none">
+                    <div className="absolute bottom-4 left-4 right-4 text-xs text-amber-400 font-mono bg-black/60 p-2 rounded-lg backdrop-blur-sm pointer-events-none flex justify-between items-center">
+                        <span>DETECTED {uniqueWords.length} WORDS</span>
+                        <span className="text-zinc-400 text-[10px]">Draw to filter</span>
                     </div>
                 </div>
             </div>
