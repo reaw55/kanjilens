@@ -14,7 +14,7 @@ async function generateTranslation(text: string) {
         const completion = await openai.chat.completions.create({
             model: "gpt-5-nano-2025-08-07",
             messages: [
-                { role: "system", content: "You are a translator. Translate the Japanese text to English. detailed, context-aware translation. If it's a menu/sign, describe it briefly." },
+                { role: "system", content: "You are a translator. Translate the Japanese text to English. Output ONLY the translation. If text is garbled, provide a SINGLE sentence summary. Max length: 50 words. No notes. No explanations." },
                 { role: "user", content: `Translate this text found on a sign/image:\n\n${text}` }
             ],
         });
