@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { createPortal } from "react-dom";
 
 // Types corresponding to our JSON structure
 type DetailedData = {
@@ -52,10 +53,12 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose }: Vo
     const kunyomi = detailed.readings?.kunyomi ||
         (detailed.kanji_breakdown?.[0]?.kunyomi ? { kana: detailed.kanji_breakdown[0].kunyomi.join('/'), note: "" } : null);
 
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+    if (typeof document === "undefined") return null;
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
             <div
-                className="bg-zinc-950 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl border border-zinc-800 shadow-2xl relative scrollbar-hide"
+                className="bg-zinc-950 w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-3xl border border-zinc-800 shadow-2xl relative scrollbar-hide"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Close Button */}

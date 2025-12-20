@@ -4,6 +4,48 @@ import { createClient } from "@/utils/supabase/server";
 import { v4 as uuidv4 } from "uuid";
 import { detectText } from "@/utils/ocr";
 
+// Helper for Translation
+async function generateTranslation(text: string) {
+    if (!text || !process.env.OPENAI_API_KEY) return null;
+    try {
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-5-nano-2025-08-07",
+            messages: [
+                { role: "system", content: "You are a translator. Translate the Japanese text to English. detailed, context-aware translation. If it's a menu/sign, describe it briefly." },
+                { role: "user", content: `Translate this text found on a sign/image:\n\n${text}` }
+            ],
+            max_tokens: 300
+        });
+
+        return completion.choices[0].message.content;
+    } catch (e) {
+        console.error("AI Translation Failed", e);
+        return null;
+    }
+}
+
+export async function ensureCaptureTranslation(captureId: string) {
+    const supabase = await createClient();
+
+    // 1. Get Capture
+    const { data: capture } = await supabase.from("captures").select("*").eq("id", captureId).single();
+    if (!capture || !capture.ocr_data?.text) return { error: "No text to translate" };
+    if (capture.translation) return { success: true, translation: capture.translation };
+
+    // 2. Generate
+    const translation = await generateTranslation(capture.ocr_data.text);
+
+    // 3. Save
+    if (translation) {
+        await supabase.from("captures").update({ translation }).eq("id", captureId);
+    }
+
+    return { success: true, translation };
+}
+
 export async function uploadCapture(formData: FormData) {
     const supabase = await createClient();
     const file = formData.get("file") as File;
@@ -113,15 +155,25 @@ export async function uploadCapture(formData: FormData) {
         ocrResult = await detectText(buffer);
     }
 
-    // 7. Update Capture with OCR Data
+    // 7. Generate AI Translation (Context Aware)
+    // We do this PARALLEL to the DB update or after. Let's do it after OCR is confirmed.
+    let translation = null;
+    if (ocrResult?.text) {
+        translation = await generateTranslation(ocrResult.text);
+    }
+
+    // 8. Update Capture with OCR Data AND Translation
     const { error: updateError } = await supabase
         .from("captures")
-        .update({ ocr_data: ocrResult })
+        .update({
+            ocr_data: ocrResult,
+            translation: translation
+        })
         .eq("id", capture.id);
 
     if (updateError) {
         console.error("Failed to save OCR data to DB", updateError);
     }
 
-    return { success: true, captureId: capture.id, ocrResult };
+    return { success: true, captureId: capture.id, ocrResult, translation };
 }

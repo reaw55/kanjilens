@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polygon } from "react-leaflet";
@@ -72,7 +73,14 @@ export default function MapView() {
 
         async function fetchCaptures() {
             const { data } = await supabase.from("captures").select("*").not("geo_lat", "is", null);
-            if (data) setCaptures(data);
+            if (data) {
+                // Deduplicate by image_hash (User Request: "if picture have the same hash do not show on map")
+                // We keep the FIRST occurrence of each hash
+                const uniqueCaptures = Array.from(
+                    new Map(data.map(item => [item.image_hash, item])).values()
+                );
+                setCaptures(uniqueCaptures);
+            }
         }
 
         fetchCaptures();
@@ -211,10 +219,10 @@ export default function MapView() {
                 })()}
             </MapContainer>
 
-            {/* Simple Lightbox Modal */}
-            {selectedCapture && (
-                <div className="absolute inset-0 z-[500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedCapture(null)}>
-                    <div className="relative max-w-lg w-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            {/* Simple Lightbox Modal - Portal to Body to break out of stacking context */}
+            {selectedCapture && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCapture(null)}>
+                    <div className="relative max-w-lg w-full max-h-[90dvh] overflow-y-auto bg-zinc-900 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 scrollbar-hide" onClick={e => e.stopPropagation()}>
 
                         <div className="relative aspect-[3/4] w-full bg-zinc-950">
                             <Image
@@ -239,14 +247,39 @@ export default function MapView() {
                             </div>
 
                             {/* Display detected words if any (simple view) */}
-                            <div className="flex flex-wrap gap-2">
-                                {selectedCapture.ocr_data?.text ? (
-                                    <div className="text-zinc-300 text-sm italic">
-                                        "{selectedCapture.ocr_data.text.substring(0, 100)}..."
+                            <div className="space-y-4">
+                                {/* Translation */}
+                                {selectedCapture.translation && (
+                                    <div className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800">
+                                        <div className="text-amber-500 text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
+                                            <span className="material-symbols-rounded text-sm">translate</span>
+                                            Context
+                                        </div>
+                                        <div className="text-zinc-300 text-sm">
+                                            {selectedCapture.translation}
+                                        </div>
                                     </div>
-                                ) : (
-                                    <span className="text-zinc-500 text-xs">No text detected</span>
                                 )}
+
+                                <div>
+                                    <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">Detected Text</h4>
+                                    {selectedCapture.ocr_data?.text ? (
+                                        <div className="text-zinc-300 text-sm italic line-clamp-3">
+                                            "{selectedCapture.ocr_data.text}"
+                                        </div>
+                                    ) : (
+                                        <span className="text-zinc-500 text-xs">No text detected</span>
+                                    )}
+                                </div>
+
+                                {/* Learned Words Section - Would be fetched dynamically, but for now we link to detail */}
+                                {/* Note: Real fetching of 'learned from this image' requires a DB join on vocabulary_captures */}
+                                <div className="mt-2">
+                                    <div className="flex items-center gap-2 text-zinc-400 text-xs">
+                                        <span className="material-symbols-rounded text-sm">school</span>
+                                        <span>Click "View Details" to see learned words</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="mt-6">
@@ -256,7 +289,8 @@ export default function MapView() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Overlay Controls */}

@@ -26,8 +26,23 @@ export default function ScanPage({
                 .select("*")
                 .eq("id", id)
                 .single();
-            setCapture(data);
-            setLoading(false);
+            if (data) {
+                setCapture(data);
+                setLoading(false);
+
+                // Lazy Backfill Translation
+                if (!data.translation && data.ocr_data?.text) {
+                    import("@/actions/upload-capture").then(({ ensureCaptureTranslation }) => {
+                        ensureCaptureTranslation(data.id).then(res => {
+                            if (res.success && res.translation) {
+                                setCapture((prev: any) => ({ ...prev, translation: res.translation }));
+                            }
+                        });
+                    });
+                }
+            } else {
+                setLoading(false);
+            }
         }
         fetchCapture();
     }, [id]);
@@ -36,7 +51,19 @@ export default function ScanPage({
     if (!capture) return <div className="p-8 text-center text-red-400">Capture not found.</div>;
 
     const ocrData = capture.ocr_data as any; // Using any for MVP flexibility
-    const words = ocrData?.detections?.slice(1) || []; // Skip first (full text)
+
+    // FILTER LOGIC:
+    // 1. Must contain at least one Kanji ([\u4e00-\u9faf\u3400-\u4dbf])
+    // This satisfies:
+    // - Removes "non-japanese" (English, numbers etc have no Kanji)
+    // - Removes "ALL hiragana" (Pure hiragana has no Kanji)
+    // - Keeps "hiragana and kanji mix" (Has Kanji + Hiragana)
+    // - Keeps "kanji alone" (Has Kanji)
+    const words = (ocrData?.detections?.slice(1) || []).filter((w: any) => {
+        const text = w.description;
+        const hasKanji = /[\u4e00-\u9faf\u3400-\u4dbf]/.test(text);
+        return hasKanji;
+    });
 
     return (
         <div className="min-h-screen bg-zinc-900 text-zinc-50 pb-20">
@@ -68,6 +95,18 @@ export default function ScanPage({
                 <div className="w-12 h-1 bg-zinc-700 rounded-full mx-auto mb-8" />
 
                 <h2 className="text-2xl font-bold mb-2 headline-metallic">Select Words</h2>
+
+                {/* Context Translation */}
+                {capture.translation && (
+                    <div className="mb-6 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800 text-zinc-300 text-sm leading-relaxed">
+                        <div className="flex items-center gap-2 mb-2 text-amber-500 font-bold text-xs uppercase tracking-wider">
+                            <span className="material-symbols-rounded text-sm">translate</span>
+                            Context Translation
+                        </div>
+                        {capture.translation}
+                    </div>
+                )}
+
                 <p className="text-zinc-400 text-sm mb-6">Tap the words you want to add to your list.</p>
 
                 <form action={handleSelection}>
