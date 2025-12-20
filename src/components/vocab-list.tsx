@@ -43,9 +43,13 @@ export function VocabList({ items }: { items: any[] }) {
             const runProcessor = async () => {
                 const res = await processPendingVocab();
                 if (res.success && res.count > 0) {
-                    router.refresh();
+                    router.refresh(); // This might trigger re-render and effect again
                 }
-                setIsProcessing(false);
+
+                // THROTTLE: Only allow next check after 3 seconds
+                setTimeout(() => {
+                    setIsProcessing(false);
+                }, 3000);
             };
             runProcessor();
         }

@@ -46,13 +46,18 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
     // LOCAL STATE for Realtime Updates
     const [internalVocab, setInternalVocab] = React.useState(vocab);
 
-    // Sync init if prop changes significantly (though we mostly care about the realtime update)
+    // Sync init if prop changes significantly
     React.useEffect(() => {
-        // Only reset if ID changes, otherwise we want to keep our local realtime state
-        if (vocab.id !== internalVocab.id) {
+        // If ID changed OR (we are missing data AND the new prop has data)
+        // This ensures that if router.refresh() happens in parent and passes down fresh data, we update.
+        if (
+            vocab.id !== internalVocab.id ||
+            (!internalVocab.detailed_data && vocab.detailed_data)
+        ) {
+            console.log("Syncing internal vocab from props:", vocab);
             setInternalVocab(vocab);
         }
-    }, [vocab]);
+    }, [vocab, internalVocab.id, internalVocab.detailed_data]);
 
     // Realtime Subscription for pending items
     React.useEffect(() => {
