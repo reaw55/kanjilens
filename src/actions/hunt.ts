@@ -83,8 +83,17 @@ async function generateHuntLevel(supabase: any, user: any, levelInfo: { nextMiss
 }
 
 async function ensureSession(supabase: any, user: any) {
+    // 0. Get Profile Mission Level (Truth)
+    const { data: profile } = await supabase
+        .from("profiles")
+        .select("mission_level")
+        .eq("id", user.id)
+        .single();
+
+    // Default to 1 if not set
+    const currentMission = profile?.mission_level || 1;
+
     // 1. Try to find active session
-    // Use maybeSingle or just find the most recent one to be robust against duplicates
     const { data: activeSessions } = await supabase
         .from("kanji_hunt_sessions")
         .select("*")
@@ -94,22 +103,27 @@ async function ensureSession(supabase: any, user: any) {
         .limit(1);
 
     if (activeSessions && activeSessions.length > 0) {
-        return activeSessions[0];
+        const session = activeSessions[0];
+        const sessionMission = session.mission_number || session.level_number || 1;
+
+        // STRICT SYNC: If active session doesn't match profile mission, archive it (IT IS STALE)
+        if (sessionMission === currentMission) {
+            return session;
+        }
+
+        // Mismatch found (e.g. Profile reset to 1, but Session is 3)
+        // Archive the stale session
+        await supabase
+            .from("kanji_hunt_sessions")
+            .update({ is_active: false })
+            .eq("id", session.id);
     }
 
-    // 2. Determine Next Level / Mission
-    // Check max mission completed/started
-    const { data: maxMissionData } = await supabase
-        .from("kanji_hunt_sessions")
-        .select("mission_number, level_number")
-        .eq("user_id", user.id)
-        .order("mission_number", { ascending: false })
-        .limit(1)
-        .single();
+    // 2. Create NEW session for currentMission
+    const nextMission = currentMission;
 
-    const nextMission = (maxMissionData?.mission_number || 0) + 1;
-    // For now, level increments with mission, but we could separate logic later
-    const nextLevel = (maxMissionData?.level_number || 0) + 1;
+    // Keep level_number in sync or just 1 for now
+    const nextLevel = 1;
 
     let theme = "Street Signs";
     let words = LEVEL_1_WORDS;
@@ -248,9 +262,22 @@ export async function advanceLevel() {
             .from("kanji_hunt_sessions")
             .update({ is_active: false })
             .eq("id", session.id);
+
+        // INCREMENT PROFILE MISSION LEVEL
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("mission_level")
+            .eq("id", user.id)
+            .single();
+
+        const current = profile?.mission_level || 1;
+        await supabase
+            .from("profiles")
+            .update({ mission_level: current + 1 })
+            .eq("id", user.id);
     }
 
-    // The next call to getCurrentHunt will create a fresh one
+    // The next call to getCurrentHunt will create a fresh one for the NEW mission level
     return { success: true };
 }
 
