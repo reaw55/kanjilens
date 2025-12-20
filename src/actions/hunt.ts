@@ -362,7 +362,7 @@ export async function scanRecentCapturesForHunt() {
 
     if (missing.length === 0) return { findings: [] };
 
-    // 2. Fetch Recent Captures (Last 20)
+    // 2. Fetch Recent Captures (that have OCR but maybe not processed for this specific session)
     const { data: captures } = await supabase
         .from("captures")
         .select("ocr_data")
