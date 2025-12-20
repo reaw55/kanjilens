@@ -351,6 +351,7 @@ export async function learnHuntWord(word: string) {
 export async function scanRecentCapturesForHunt() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
 
     // 1. Get Session
     const session = await ensureSession(supabase, user);
