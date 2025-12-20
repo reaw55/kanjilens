@@ -22,6 +22,19 @@ export function VocabList({ items }: { items: any[] }) {
 
     const [filter, setFilter] = useState<'all' | 'scan' | 'related'>('all');
 
+    // Auto-open modal from query param
+    useEffect(() => {
+        const openId = searchParams.get("open");
+        if (openId && items.length > 0) {
+            const target = items.find(i => i.id === openId);
+            if (target) {
+                setSelectedVocab(target);
+                // Optional: Clear URL param so refresh doesn't re-open?
+                // window.history.replaceState(null, '', '/vocab');
+            }
+        }
+    }, [searchParams, items]);
+
     useEffect(() => {
         const hasPending = items.some(i => !i.detailed_data);
         if (hasPending && !isProcessing) {
@@ -129,7 +142,7 @@ export function VocabList({ items }: { items: any[] }) {
                             <div className="flex justify-between items-start mb-2">
                                 <div className="text-3xl font-bold text-zinc-50">{item.kanji_word}</div>
                                 <div className="text-xs font-mono uppercase tracking-widest text-zinc-500">
-                                    {isPending ? 'Processing...' : `Level ${item.srs_level} `}
+                                    {isPending ? 'Processing...' : ''}
                                 </div>
                             </div>
                             <div className="text-amber-400 text-sm font-medium mb-1">{item.reading_kana}</div>

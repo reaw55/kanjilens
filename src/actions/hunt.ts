@@ -281,10 +281,76 @@ export async function advanceLevel() {
     return { success: true };
 }
 
-export async function scanRecentCapturesForHunt() {
+export async function checkHuntVocabStatus(words: string[]) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return {};
+
+    const { data } = await supabase
+        .from("vocabulary_items")
+        .select("id, kanji_word") // FIXED: kanji -> kanji_word
+        .eq("user_id", user.id)
+        .in("kanji_word", words); // FIXED: kanji -> kanji_word
+
+    const status: Record<string, string> = {};
+    if (data) {
+        data.forEach((item: any) => {
+            status[item.kanji_word] = item.id;
+        });
+    }
+    return status;
+}
+
+export async function learnHuntWord(word: string) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Unauthorized" };
+
+    // 1. Check if ANY duplicate exists first (Fast)
+    const { data: existing } = await supabase
+        .from("vocabulary_items")
+        .select("id")
+        .eq("user_id", user.id!)
+        .eq("kanji_word", word)
+        .single();
+
+    const { revalidatePath } = await import("next/cache");
+    const { redirect } = await import("next/navigation");
+
+    if (existing) {
+        // If it exists, we still want to redirect the user to it!
+        revalidatePath("/hunt");
+        revalidatePath("/vocab");
+        redirect(`/vocab?open=${existing.id}`);
+    }
+
+    // 2. INSERT PLACEHOLDER IMMEDIATELY
+    const { data: newItem, error } = await supabase
+        .from("vocabulary_items")
+        .insert({
+            user_id: user.id!,
+            kanji_word: word,
+            reading_kana: "Loading...",
+            meaning_en: "Generating definition...",
+            source: "hunt",
+            status: "learning",
+        })
+        .select()
+        .single();
+
+    if (error) return { error: error.message };
+
+
+    // 3. DONE -> Redirect
+    revalidatePath("/hunt");
+    revalidatePath("/vocab");
+
+    redirect(`/vocab?open=${newItem.id}`);
+}
+
+export async function scanRecentCapturesForHunt() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
     // 1. Get Session
     const session = await ensureSession(supabase, user);

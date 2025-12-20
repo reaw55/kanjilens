@@ -3,6 +3,7 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { BottomNav } from "@/components/bottom-nav";
 
 export default async function HuntPage() {
     const supabase = await createClient();
@@ -27,21 +28,30 @@ export default async function HuntPage() {
 
     const progress = Math.round((found.length / targets.length) * 100);
 
+    // Fetch Vocab Status for interactions
+    // We need to know which words are already 'learned' to route correctly
+    const { checkHuntVocabStatus } = await import("@/actions/hunt");
+    const vocabStatus = await checkHuntVocabStatus(targets);
+
     return (
-        <div className="min-h-screen bg-zinc-950 text-white pb-24">
-            {/* Header */}
-            <div className="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 p-4 flex items-center justify-between">
-                <Link href="/" className="p-2 -ml-2 text-zinc-400 hover:text-white transition-colors">
-                    <span className="material-symbols-rounded text-2xl">arrow_back</span>
-                </Link>
-                <h1 className="font-bold text-lg flex items-center gap-2">
-                    <span className="material-symbols-rounded text-amber-500">location_searching</span>
-                    Kanji Hunt
-                </h1>
-                <div className="w-8" /> {/* Spacer */}
+        <div className="min-h-screen bg-black pb-24 relative overflow-hidden">
+            {/* Background elements (omitted for brevity, assume unchanged) */}
+            <div className="absolute inset-0 z-0">
+                <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-amber-900/20 to-transparent" />
             </div>
 
-            <div className="p-6 max-w-md mx-auto">
+            <div className="relative z-10 p-6 pt-12 max-w-md mx-auto">
+                <div className="flex items-center justify-between mb-8">
+                    <Link href="/" className="p-3 bg-zinc-900/80 backdrop-blur-md rounded-full text-white border border-zinc-800">
+                        <span className="material-symbols-rounded">arrow_back</span>
+                    </Link>
+                    <h1 className="font-bold text-lg flex items-center gap-2">
+                        <span className="material-symbols-rounded text-amber-500">location_searching</span>
+                        Kanji Hunt
+                    </h1>
+                    <div className="w-10" /> {/* Spacer */}
+                </div>
+
                 {/* Progress Card */}
                 <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 shadow-2xl mb-8 relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-8 opacity-5">
@@ -95,36 +105,39 @@ export default async function HuntPage() {
                     {targets.map((word, i) => {
                         // ROBUSTNESS: Trim both to be safe
                         const isFound = found.some(f => f.trim() === word.trim());
+                        const vocabId = vocabStatus[word]; // Check if learned
+
                         return (
-                            <div
-                                key={i}
-                                className={cn(
-                                    "aspect-square rounded-2xl flex flex-col items-center justify-center p-4 border transition-all relative overflow-hidden group",
-                                    isFound
-                                        ? "bg-amber-950/30 border-amber-500/30 shadow-lg shadow-amber-500/10"
-                                        : "bg-zinc-900 border-zinc-800 hover:border-zinc-700"
-                                )}
-                            >
-                                {isFound && (
-                                    <div className="absolute top-2 right-2">
-                                        <span className="material-symbols-rounded text-amber-500 text-xl animate-in zoom-in spin-in-180 duration-500">check_circle</span>
+                            <HuntWordInteraction key={i} word={word} isFound={isFound} vocabId={vocabId}>
+                                <div
+                                    className={cn(
+                                        "aspect-square rounded-2xl flex flex-col items-center justify-center p-4 border transition-all relative overflow-hidden group cursor-pointer", // Added cursor-pointer
+                                        isFound
+                                            ? "bg-amber-950/30 border-amber-500/30 shadow-lg shadow-amber-500/10"
+                                            : "bg-zinc-900 border-zinc-800 hover:border-zinc-700"
+                                    )}
+                                >
+                                    {isFound && (
+                                        <div className="absolute top-2 right-2">
+                                            <span className="material-symbols-rounded text-amber-500 text-xl animate-in zoom-in spin-in-180 duration-500">check_circle</span>
+                                        </div>
+                                    )}
+
+                                    <div className={cn(
+                                        "text-3xl font-bold mb-2 transition-colors",
+                                        isFound ? "text-amber-400" : "text-zinc-500 group-hover:text-zinc-300"
+                                    )}>
+                                        {word}
                                     </div>
-                                )}
 
-                                <div className={cn(
-                                    "text-3xl font-bold mb-2 transition-colors",
-                                    isFound ? "text-amber-400" : "text-zinc-500 group-hover:text-zinc-300"
-                                )}>
-                                    {word}
+                                    <div className={cn(
+                                        "text-xs font-medium px-2 py-1 rounded-full",
+                                        isFound ? "bg-amber-500/10 text-amber-400" : "bg-zinc-800 text-zinc-600"
+                                    )}>
+                                        {isFound ? (vocabId ? "LEARNED" : "FOUND") : "MISSING"}
+                                    </div>
                                 </div>
-
-                                <div className={cn(
-                                    "text-xs font-medium px-2 py-1 rounded-full",
-                                    isFound ? "bg-amber-500/10 text-amber-400" : "bg-zinc-800 text-zinc-600"
-                                )}>
-                                    {isFound ? "FOUND" : "MISSING"}
-                                </div>
-                            </div>
+                            </HuntWordInteraction>
                         );
                     })}
                 </div>
@@ -139,8 +152,11 @@ export default async function HuntPage() {
                     bonusXP={scanResult.bonusXP || 0}
                 />
             )}
+
+            <BottomNav />
         </div>
     );
 }
 
 import { HuntCelebration } from "@/components/hunt-celebration";
+import { HuntWordInteraction } from "@/components/hunt-word-interaction";
