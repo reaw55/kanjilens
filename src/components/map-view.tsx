@@ -261,9 +261,36 @@ export default function MapView() {
                                         {new Date(selectedCapture.created_at).toLocaleDateString()}
                                     </p>
                                 </div>
-                                <Button size="icon" variant="ghost" onClick={() => setSelectedCapture(null)}>
-                                    <span className="material-symbols-rounded">close</span>
-                                </Button>
+                                <div className="flex gap-2">
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="text-zinc-400 hover:text-red-500 hover:bg-red-500/10"
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (!window.confirm("Permanently delete this capture?")) return;
+
+                                            try {
+                                                const { deleteCapture } = await import("@/actions/upload-capture");
+                                                const res = await deleteCapture(selectedCapture.id);
+                                                if (res.success) {
+                                                    setCaptures(prev => prev.filter(c => c.id !== selectedCapture.id));
+                                                    setSelectedCapture(null);
+                                                } else {
+                                                    alert("Failed to delete.");
+                                                }
+                                            } catch (err) {
+                                                console.error(err);
+                                                alert("Error occured.");
+                                            }
+                                        }}
+                                    >
+                                        <span className="material-symbols-rounded">delete</span>
+                                    </Button>
+                                    <Button size="icon" variant="ghost" onClick={() => setSelectedCapture(null)}>
+                                        <span className="material-symbols-rounded">close</span>
+                                    </Button>
+                                </div>
                             </div>
 
                             {/* Display content */}
@@ -338,7 +365,7 @@ export default function MapView() {
                 <h3 className="font-bold text-zinc-100 text-sm">Discovery Map</h3>
                 <p className="text-xs text-zinc-400">{captures.length} Locations Found</p>
             </div>
-        </div>
+        </div >
     );
 }
 

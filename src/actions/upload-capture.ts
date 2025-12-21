@@ -176,3 +176,26 @@ export async function uploadCapture(formData: FormData) {
 
     return { success: true, captureId: capture.id, ocrResult, translation };
 }
+
+export async function deleteCapture(captureId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const { error } = await supabase
+        .from("captures")
+        .delete()
+        .eq("id", captureId)
+        .eq("user_id", user.id);
+
+    if (error) {
+        console.error("Delete Capture Error:", error);
+        return { error: "Failed to delete capture" };
+    }
+
+    const { revalidatePath } = await import("next/cache");
+    revalidatePath("/hunt");
+
+    return { success: true };
+}
