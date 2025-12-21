@@ -62,7 +62,7 @@ function MapEventHandler({ onZoomChange }: { onZoomChange: (zoom: number) => voi
     return null;
 }
 
-export default function MapView() {
+export default function MapView({ hideOverlay = false }: { hideOverlay?: boolean }) {
     const [captures, setCaptures] = useState<any[]>([]);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [selectedCapture, setSelectedCapture] = useState<any>(null);
@@ -361,10 +361,12 @@ export default function MapView() {
             )}
 
             {/* Overlay Controls */}
-            <div className="absolute top-4 left-4 z-[400] bg-zinc-900/90 backdrop-blur-md p-3 rounded-2xl border border-zinc-700 shadow-xl">
-                <h3 className="font-bold text-zinc-100 text-sm">Discovery Map</h3>
-                <p className="text-xs text-zinc-400">{captures.length} Locations Found</p>
-            </div>
+            {!hideOverlay && (
+                <div className="absolute top-4 left-4 z-[400] bg-zinc-900/90 backdrop-blur-md p-3 rounded-2xl border border-zinc-700 shadow-xl">
+                    <h3 className="font-bold text-zinc-100 text-sm">Discovery Map</h3>
+                    <p className="text-xs text-zinc-400">{captures.length} Locations Found</p>
+                </div>
+            )}
         </div >
     );
 }

@@ -49,7 +49,7 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount, init
                 "absolute inset-0 z-0 transition-opacity duration-500",
                 viewMode === 'map' ? "opacity-100" : "opacity-20 pointer-events-none"
             )}>
-                <MapView />
+                <MapView hideOverlay={true} />
             </div>
 
             {/* 2. Top Bar (Floating Profile Stats) */}
@@ -59,10 +59,7 @@ export function HomeClient({ user, profile, stats, dueCount, capturesCount, init
                     <div className="bg-zinc-900/80 backdrop-blur-md rounded-2xl p-3 border border-zinc-800 shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-500">
                         <div className="relative">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center font-bold text-zinc-950 ring-2 ring-zinc-900">
-                                {stats.currentLevel}
-                            </div>
-                            <div className="absolute -bottom-1 -right-1 bg-zinc-900 rounded-full px-1.5 py-0.5 border border-zinc-800">
-                                <span className="text-[8px] font-bold text-amber-500">LVL</span>
+                                <span className="text-[8px] font-bold text-500">LVL </span> {stats.currentLevel}
                             </div>
                         </div>
 
