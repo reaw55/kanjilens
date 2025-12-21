@@ -8,6 +8,7 @@ import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 import { ConversationCard } from "./conversation-card";
 import type { ConversationData } from "@/actions/conversation";
+import { LAYOUT_CONFIG } from "@/config/layout.config";
 
 // Types corresponding to our JSON structure
 type DetailedData = {
@@ -61,6 +62,15 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
     // Learn Confirmation State
     const [pendingLearnChar, setPendingLearnChar] = React.useState<string | null>(null);
     const [isLearning, setIsLearning] = React.useState(false);
+
+    // Random Avatar State (Stable per session)
+    const [avatars] = React.useState(() => {
+        const a = Math.floor(Math.random() * 6) + 1;
+        let b = Math.floor(Math.random() * 6) + 1;
+        // Try to ensure they are different, though they are from different folders anyway
+        if (b === a) b = (b % 6) + 1;
+        return { A: a, B: b };
+    });
 
     // Sync init if prop changes significantly
     React.useEffect(() => {
@@ -335,30 +345,42 @@ export function VocabDetailModal({ vocab, existingWords, onJumpTo, onClose, asso
                         <section>
                             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">Conversation</h3>
                             {detailed.dialogue ? (
-                                <div className="space-y-3">
+                                <div className="space-y-4">
                                     {detailed.dialogue.map((line, i) => (
                                         <div key={i} className={cn("flex gap-3", line.speaker === "B" ? "flex-row-reverse" : "")}>
-                                            <div className={cn(
-                                                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-2",
-                                                line.speaker === "A" ? "bg-amber-500 text-zinc-900" : "bg-zinc-700 text-zinc-300"
-                                            )}>
-                                                {line.speaker}
+                                            <div className="flex flex-col items-center gap-1 shrink-0">
+                                                <div className={cn(
+                                                    "w-10 h-10 rounded-full overflow-hidden border-2 bg-zinc-800 shadow-md",
+                                                    line.speaker === "A" ? "border-amber-500/50" : "border-zinc-600"
+                                                )}>
+                                                    {/* Dedicated avatar sprites */}
+                                                    <img
+                                                        src={line.speaker === "A"
+                                                            ? `/sprites/convo-people/avatar/${avatars.A}.png`
+                                                            : `/sprites/convo-people/avatar/${avatars.B}.png`
+                                                        }
+                                                        alt={line.speaker}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                                <span className="text-[10px] text-zinc-500 font-bold opacity-50">{line.speaker}</span>
                                             </div>
+
                                             <div className={cn(
-                                                "p-3 rounded-2xl max-w-[85%] text-sm",
+                                                "p-3 rounded-2xl max-w-[85%] text-sm shadow-sm mt-1",
                                                 line.speaker === "A"
-                                                    ? "bg-zinc-800/80 rounded-tl-none text-zinc-200"
-                                                    : "bg-zinc-900 rounded-tr-none text-zinc-400 border border-zinc-800"
+                                                    ? "bg-zinc-800/80 rounded-tl-none text-zinc-200 border border-zinc-700/50"
+                                                    : "bg-zinc-900 rounded-tr-none text-zinc-300 border border-zinc-800"
                                             )}>
-                                                <p className="font-medium mb-1">{line.japanese}</p>
-                                                <p className="text-xs opacity-70">{line.english}</p>
+                                                <p className="font-medium mb-1 leading-relaxed">{line.japanese}</p>
+                                                <p className="text-xs text-zinc-500">{line.english}</p>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="p-4 bg-zinc-900 rounded-xl border border-zinc-800">
-                                    <p className="font-medium text-zinc-200 mb-1">{internalVocab.context_sentence_jp}</p>
+                                <div className="p-4 bg-zinc-900 rounded-xl border border-zinc-800 shadow-sm">
+                                    <p className="font-medium text-zinc-200 mb-1 leading-relaxed">{internalVocab.context_sentence_jp}</p>
                                     <p className="text-xs text-zinc-500">{internalVocab.context_sentence_en}</p>
                                 </div>
                             )}

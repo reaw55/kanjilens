@@ -19,7 +19,7 @@ export const LAYOUT_CONFIG = {
         charA: {
             bottom: "-35%",
             offsetFromText: "-220px", // Closer pinning
-            left: "-15%",
+            left: "-7%",
             width: "45%",
             height: "55%",
             rotation: 0
@@ -29,7 +29,7 @@ export const LAYOUT_CONFIG = {
         charB: {
             bottom: "-55%",
             offsetFromText: "-220px",
-            right: "-15%",
+            right: "-5%",
             width: "45%",
             height: "55%",
             rotation: -0
