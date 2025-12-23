@@ -13,12 +13,13 @@ interface ImageHighlighterProps {
     imageUrl: string;
     thumbnailUrl?: string | null;
     detections: any[]; // OCR Detections
-    selectedWords?: any[]; // Highlighted words
+    selectedWords?: any[]; // Words from lasso selection
+    highlightedWord?: string | null; // Word being hovered in button list
     ocrDimensions?: { width: number; height: number };
     onFilter: (filteredWords: any[]) => void;
 }
 
-export function ImageHighlighter({ imageUrl, thumbnailUrl, detections, selectedWords = [], ocrDimensions, onFilter }: ImageHighlighterProps) {
+export function ImageHighlighter({ imageUrl, thumbnailUrl, detections, selectedWords = [], highlightedWord, ocrDimensions, onFilter }: ImageHighlighterProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     // ... existing refs and state ...
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -239,18 +240,31 @@ export function ImageHighlighter({ imageUrl, thumbnailUrl, detections, selectedW
                             }
                             ctx.closePath();
 
-                            // Check if selected
+                            // Check if selected (lasso) or highlighted (button hover)
                             const isSelected = selectedWords?.some(w => w === d || w.description === d.description);
+                            // Check if this word matches or contains the highlighted word from button
+                            const isHighlighted = highlightedWord && (
+                                d.description === highlightedWord ||
+                                d.description.includes(highlightedWord) ||
+                                highlightedWord.includes(d.description)
+                            );
 
-                            if (isSelected) {
-                                ctx.strokeStyle = '#f59e0b'; // Amber-500
+                            if (isHighlighted) {
+                                // Highlighted from button: Light yellow fill
+                                ctx.strokeStyle = '#f59e0b'; // Amber
                                 ctx.lineWidth = 3;
                                 ctx.stroke();
-                                ctx.fillStyle = 'rgba(245, 158, 11, 0.3)';
+                                ctx.fillStyle = 'rgba(245, 158, 11, 0.35)';
                                 ctx.fill();
+                            } else if (isSelected) {
+                                // Selected from lasso: Yellow outline
+                                ctx.strokeStyle = '#ffbf51ff'; // yellow
+                                ctx.lineWidth = 3;
+                                ctx.stroke();
                             } else {
-                                ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
-                                ctx.lineWidth = 1.5;
+                                // Unselected: Light yellow outline only (no fill)
+                                ctx.strokeStyle = '#f5d49bff'; // light yellow
+                                ctx.lineWidth = 1;
                                 ctx.stroke();
                             }
                         }

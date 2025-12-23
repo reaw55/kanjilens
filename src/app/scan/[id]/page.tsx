@@ -17,6 +17,21 @@ export default function ScanPage({
     const [capture, setCapture] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [filteredWords, setFilteredWords] = useState<any[]>([]);
+    const [highlightedWord, setHighlightedWord] = useState<string | null>(null);
+    const [selectedForLearning, setSelectedForLearning] = useState<Set<string>>(new Set());
+
+    // Toggle word selection
+    const toggleWord = (word: string) => {
+        setSelectedForLearning(prev => {
+            const next = new Set(prev);
+            if (next.has(word)) {
+                next.delete(word);
+            } else {
+                next.add(word);
+            }
+            return next;
+        });
+    };
 
     useEffect(() => {
         const supabase = createClient();
@@ -89,8 +104,15 @@ export default function ScanPage({
                     thumbnailUrl={capture.thumbnail_url}
                     detections={words} // Pass pre-filtered kanji words to optimize
                     selectedWords={filteredWords}
+                    highlightedWord={highlightedWord}
                     ocrDimensions={ocrDims}
-                    onFilter={(filtered) => setFilteredWords(filtered)}
+                    onFilter={(filtered) => {
+                        setFilteredWords(filtered);
+                        // Auto-select drawn words
+                        const newSelected = new Set(selectedForLearning);
+                        filtered.forEach((w: any) => newSelected.add(w.description));
+                        setSelectedForLearning(newSelected);
+                    }}
                 />
 
                 {/* Overlay for Bounding Boxes - Simplified for MVP */}
@@ -158,9 +180,24 @@ export default function ScanPage({
                                 return (
                                     <div key={i} className="flex flex-col gap-1">
                                         {/* Main Word */}
-                                        <label className="cursor-pointer group">
-                                            <input type="checkbox" name="words" value={w.description} className="peer hidden" />
-                                            <span className="inline-block px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 transition-all peer-checked:bg-amber-500 peer-checked:text-zinc-900 peer-checked:border-amber-400 peer-checked:font-bold group-hover:bg-zinc-700">
+                                        <label
+                                            className="cursor-pointer group"
+                                            onMouseEnter={() => setHighlightedWord(w.description)}
+                                            onMouseLeave={() => setHighlightedWord(null)}
+                                            onClick={(e) => { e.preventDefault(); toggleWord(w.description); }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                name="words"
+                                                value={w.description}
+                                                checked={selectedForLearning.has(w.description)}
+                                                onChange={() => { }} // Handled by label onClick
+                                                className="hidden"
+                                            />
+                                            <span className={`inline-block px-4 py-2 rounded-xl border transition-all group-hover:bg-zinc-700 ${selectedForLearning.has(w.description)
+                                                ? 'bg-amber-500 text-zinc-900 border-amber-400 font-bold'
+                                                : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                                                }`}>
                                                 {w.description}
                                             </span>
                                         </label>
@@ -169,9 +206,25 @@ export default function ScanPage({
                                         {uniqueSubItems.length > 0 && (
                                             <div className="flex gap-2 pl-4 border-l-2 border-zinc-800 ml-2">
                                                 {uniqueSubItems.map((k, kIdx) => (
-                                                    <label key={`${i}-${kIdx}`} className="cursor-pointer group/sub">
-                                                        <input type="checkbox" name="words" value={k as string} className="peer hidden" />
-                                                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 text-sm transition-all peer-checked:bg-amber-500/20 peer-checked:text-amber-500 peer-checked:border-amber-500/50 peer-checked:font-bold group-hover/sub:border-zinc-600">
+                                                    <label
+                                                        key={`${i}-${kIdx}`}
+                                                        className="cursor-pointer group/sub"
+                                                        onMouseEnter={() => setHighlightedWord(k as string)}
+                                                        onMouseLeave={() => setHighlightedWord(null)}
+                                                        onClick={(e) => { e.preventDefault(); toggleWord(k as string); }}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            name="words"
+                                                            value={k as string}
+                                                            checked={selectedForLearning.has(k as string)}
+                                                            onChange={() => { }}
+                                                            className="hidden"
+                                                        />
+                                                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-sm transition-all group-hover/sub:border-zinc-600 ${selectedForLearning.has(k as string)
+                                                            ? 'bg-amber-500/20 text-amber-500 border-amber-500/50 font-bold'
+                                                            : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                                            }`}>
                                                             {k as string}
                                                         </span>
                                                     </label>
