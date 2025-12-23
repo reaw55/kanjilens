@@ -11,66 +11,124 @@ interface Point {
 
 interface ImageHighlighterProps {
     imageUrl: string;
+    thumbnailUrl?: string | null;
     detections: any[]; // OCR Detections
+    selectedWords?: any[]; // Highlighted words
+    ocrDimensions?: { width: number; height: number };
     onFilter: (filteredWords: any[]) => void;
 }
 
-export function ImageHighlighter({ imageUrl, detections, onFilter }: ImageHighlighterProps) {
+export function ImageHighlighter({ imageUrl, thumbnailUrl, detections, selectedWords = [], ocrDimensions, onFilter }: ImageHighlighterProps) {
     const containerRef = useRef<HTMLDivElement>(null);
+    // ... existing refs and state ...
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [path, setPath] = useState<Point[]>([]);
     const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
 
-    // Filter Logic
-    const filterWords = (currentPath: Point[]) => {
-        if (!imageDimensions || currentPath.length < 3 || !containerRef.current) return;
+    // Generic render/filter recalculation function
+    const recalculate = () => {
+        if (!containerRef.current || !imageDimensions) return;
 
-        const container = containerRef.current;
-        const { clientWidth: containerWidth, clientHeight: containerHeight } = container;
+        // Use getBoundingClientRect for sub-pixel precision
+        const rect = containerRef.current.getBoundingClientRect();
+        const containerWidth = rect.width;
+        const containerHeight = rect.height;
+
         const { width: imgNaturalWidth, height: imgNaturalHeight } = imageDimensions;
 
-        // Calculate rendered image dimensions (contain)
+        // ROTATION DETECTION:
+        // Check if OCR dimensions are swapped relative to displayed image
+        let isRotated = false;
+        if (ocrDimensions) {
+            const imgAspect = imgNaturalWidth / imgNaturalHeight;
+            const ocrAspect = ocrDimensions.width / ocrDimensions.height;
+            // If one is > 1 and other is < 1, dimensions are swapped (90° rotation)
+            if ((imgAspect > 1 && ocrAspect < 1) || (imgAspect < 1 && ocrAspect > 1)) {
+                isRotated = true;
+            }
+        }
+
+        // Calculate rendered image dimensions (object-fit: contain)
         const imgAspect = imgNaturalWidth / imgNaturalHeight;
         const containerAspect = containerWidth / containerHeight;
 
         let renderedWidth, renderedHeight, offsetX, offsetY;
 
         if (containerAspect > imgAspect) {
-            // Container is wider -> Pillarbox (bars on sides)
             renderedHeight = containerHeight;
             renderedWidth = containerHeight * imgAspect;
             offsetX = (containerWidth - renderedWidth) / 2;
             offsetY = 0;
         } else {
-            // Container is taller -> Letterbox (bars top/bottom)
             renderedWidth = containerWidth;
             renderedHeight = containerWidth / imgAspect;
             offsetX = 0;
             offsetY = (containerHeight - renderedHeight) / 2;
         }
 
-        const scaleX = imgNaturalWidth / renderedWidth;
-        const scaleY = imgNaturalHeight / renderedHeight;
+        // CRITICAL FIX: When rotated, OCR dims are swapped relative to visual dims
+        // OCR X (0..ocrW) maps to Visual Y (0..renderedHeight)
+        // OCR Y (0..ocrH) maps to Visual X (0..renderedWidth)
+        let scaleX: number, scaleY: number;
+        if (isRotated && ocrDimensions) {
+            // For rotated images: map OCR coords to visual space
+            scaleX = renderedWidth / ocrDimensions.height;  // OCR height -> visual width
+            scaleY = renderedHeight / ocrDimensions.width;  // OCR width -> visual height
+        } else {
+            scaleX = renderedWidth / imgNaturalWidth;
+            scaleY = renderedHeight / imgNaturalHeight;
+        }
+
+        return { scaleX, scaleY, offsetX, offsetY, containerWidth, containerHeight, isRotated, ocrDimensions };
+    };
+
+    // Filter Logic
+    const filterWords = (currentPath: Point[]) => {
+        const metrics = recalculate();
+        if (!metrics || currentPath.length < 3) return;
+        const { scaleX, scaleY, offsetX, offsetY, isRotated, ocrDimensions } = metrics;
 
         // Convert path points to Original Image Coordinates
         const polygon = currentPath.map(p => {
-            // p is relative to container (0,0 is top-left of container)
-            // We subtract the offset (start of image) and then scale.
-            const x = (p.x - offsetX) * scaleX;
-            const y = (p.y - offsetY) * scaleY;
+            // Inverse projection: (Screen - Offset) / Scale
+            const x = (p.x - offsetX) / scaleX;
+            const y = (p.y - offsetY) / scaleY;
             return [x, y];
         });
 
         const filtered = detections.filter(detection => {
             if (!detection.boundingPoly?.vertices) return false;
-
             const vertices = detection.boundingPoly.vertices;
             let cx = 0, cy = 0;
-            vertices.forEach((v: any) => {
-                cx += (v.x || 0);
-                cy += (v.y || 0);
+
+            vertices.forEach((v: any, i: number) => {
+                let vx = v.x || 0;
+                let vy = v.y || 0;
+
+                // TRANSFORM COORDINATES IF ROTATED
+                if (isRotated && ocrDimensions) {
+                    // Transpose + Horizontal Mirror to fix mirrored coordinates
+                    const oldX = vx;
+                    const oldY = vy;
+                    // Mirror: flip X axis (ocrHeight - oldY instead of just oldY)
+                    vx = ocrDimensions.height - oldY;
+                    vy = oldX;
+
+                    if (v === vertices[0] && i === 0) {
+                        console.log("DEBUG ROTATION:", {
+                            ocrW: ocrDimensions.width, ocrH: ocrDimensions.height,
+                            imgW: metrics.containerWidth, imgH: metrics.containerHeight,
+                            scaleX, scaleY,
+                            oldX, oldY, newX: vx, newY: vy
+                        });
+                    }
+                }
+
+                cx += vx;
+                cy += vy;
             });
+
             cx /= vertices.length;
             cy /= vertices.length;
 
@@ -96,8 +154,6 @@ export function ImageHighlighter({ imageUrl, detections, onFilter }: ImageHighli
     const stopDrawing = () => {
         setIsDrawing(false);
         filterWords(path);
-        // Optional: clear path after a delay? Or keep it to show selection?
-        // For now, keep it.
     };
 
     const clearSelection = () => {
@@ -119,85 +175,106 @@ export function ImageHighlighter({ imageUrl, detections, onFilter }: ImageHighli
         const canvas = canvasRef.current;
         if (!canvas || !containerRef.current) return;
 
-        // Resize canvas to match container
-        canvas.width = containerRef.current.clientWidth;
-        canvas.height = containerRef.current.clientHeight;
+        // FORCE RESIZE Canvas to match container resolution (1:1 with CSS pixels)
+        const rect = containerRef.current.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const renderFrame = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (path.length > 0) {
-            ctx.beginPath();
-            ctx.strokeStyle = '#f59e0b'; // Amber-500
-            ctx.lineWidth = 4;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-
-            ctx.moveTo(path[0].x, path[0].y);
-            path.forEach(p => ctx.lineTo(p.x, p.y));
-
-            // If checking "closed" loop, maybe draw line to start?
-            // For now just draw the strip.
-
-            ctx.stroke();
-
-            // Visualize "Selection Mode" - maybe partial fill?
-            ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
-            ctx.fill();
-        }
-
-        // DEBUG: Draw Bounding Boxes if enabled (or always for now to solve user issue)
-        // Let's draw them faintly to confirm where the app thinks text is.
-        if (imageDimensions) {
-            const { clientWidth: containerWidth, clientHeight: containerHeight } = containerRef.current;
-            const { width: imgNaturalWidth, height: imgNaturalHeight } = imageDimensions;
-            const imgAspect = imgNaturalWidth / imgNaturalHeight;
-            const containerAspect = containerWidth / containerHeight;
-
-            let renderedWidth, renderedHeight, offsetX, offsetY;
-            if (containerAspect > imgAspect) {
-                renderedHeight = containerHeight;
-                renderedWidth = containerHeight * imgAspect;
-                offsetX = (containerWidth - renderedWidth) / 2;
-                offsetY = 0;
-            } else {
-                renderedWidth = containerWidth;
-                renderedHeight = containerWidth / imgAspect;
-                offsetX = 0;
-                offsetY = (containerHeight - renderedHeight) / 2;
+            // Draw Path
+            if (path.length > 0) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.moveTo(path[0].x, path[0].y);
+                path.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+                ctx.fill();
             }
-            const scaleX = renderedWidth / imgNaturalWidth; // Inverse scale for projecting TO canvas
-            const scaleY = renderedHeight / imgNaturalHeight;
 
-            ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
-            ctx.lineWidth = 1;
+            // Draw Boxes
+            const metrics = recalculate();
+            if (metrics) {
+                const { scaleX, scaleY, offsetX, offsetY, isRotated, ocrDimensions } = metrics;
+                ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
+                ctx.lineWidth = 1.5;
 
-            detections.forEach(d => {
-                if (d.boundingPoly?.vertices) {
-                    ctx.beginPath();
-                    const v = d.boundingPoly.vertices;
-                    if (v.length > 0) {
-                        ctx.moveTo((v[0].x || 0) * scaleX + offsetX, (v[0].y || 0) * scaleY + offsetY);
-                        for (let i = 1; i < v.length; i++) {
-                            ctx.lineTo((v[i].x || 0) * scaleX + offsetX, (v[i].y || 0) * scaleY + offsetY);
+                detections.forEach(d => {
+                    if (d.boundingPoly?.vertices) {
+                        const v = d.boundingPoly.vertices;
+                        if (v.length > 0) {
+                            ctx.beginPath();
+
+                            // Transform Helper
+                            const getCoord = (p: any) => {
+                                let vx = p.x || 0;
+                                let vy = p.y || 0;
+                                if (isRotated && ocrDimensions) {
+                                    // Transpose + Horizontal Mirror
+                                    const oldX = vx;
+                                    const oldY = vy;
+                                    vx = ocrDimensions.height - oldY;
+                                    vy = oldX;
+                                }
+                                return {
+                                    x: vx * scaleX + offsetX,
+                                    y: vy * scaleY + offsetY
+                                };
+                            };
+
+                            const start = getCoord(v[0]);
+                            ctx.moveTo(start.x, start.y);
+
+                            for (let i = 1; i < v.length; i++) {
+                                const p = getCoord(v[i]);
+                                ctx.lineTo(p.x, p.y);
+                            }
+                            ctx.closePath();
+
+                            // Check if selected
+                            const isSelected = selectedWords?.some(w => w === d || w.description === d.description);
+
+                            if (isSelected) {
+                                ctx.strokeStyle = '#f59e0b'; // Amber-500
+                                ctx.lineWidth = 3;
+                                ctx.stroke();
+                                ctx.fillStyle = 'rgba(245, 158, 11, 0.3)';
+                                ctx.fill();
+                            } else {
+                                ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
+                                ctx.lineWidth = 1.5;
+                                ctx.stroke();
+                            }
                         }
-                        ctx.closePath();
-                        ctx.stroke();
-
-                        // indicate center
-                        let cx = 0, cy = 0;
-                        v.forEach((p: any) => { cx += (p.x || 0); cy += (p.y || 0); });
-                        cx /= v.length;
-                        cy /= v.length;
-                        ctx.fillStyle = 'rgba(0,255,0,0.5)';
-                        ctx.fillRect((cx * scaleX + offsetX) - 2, (cy * scaleY + offsetY) - 2, 4, 4);
                     }
-                }
-            });
-        }
-    }, [path, isDrawing, detections, imageDimensions]);
+                });
+            }
+        };
+
+        renderFrame();
+
+        // Resize Observer to handle layout shifts
+        const resizeObserver = new ResizeObserver(() => {
+            const newRect = containerRef.current?.getBoundingClientRect();
+            if (newRect && canvas) {
+                canvas.width = newRect.width;
+                canvas.height = newRect.height;
+                renderFrame();
+            }
+        });
+
+        resizeObserver.observe(containerRef.current);
+        return () => resizeObserver.disconnect();
+
+    }, [path, detections, imageDimensions]);
 
     // Also reset on new Image
     useEffect(() => {
@@ -207,20 +284,31 @@ export function ImageHighlighter({ imageUrl, detections, onFilter }: ImageHighli
     return (
         <div
             ref={containerRef}
-            className="relative w-full h-full touch-none select-none"
+            className="relative w-full h-full touch-none select-none bg-black"
             onPointerDown={startDrawing}
             onPointerMove={draw}
             onPointerUp={stopDrawing}
             onPointerLeave={stopDrawing}
         >
-            {/* The Image */}
+            {/* Low-Res Thumbnail (Immediate) */}
+            {thumbnailUrl && (
+                <img
+                    src={thumbnailUrl}
+                    alt="Thumbnail"
+                    className="absolute inset-0 w-full h-full object-contain blur-sm scale-105 opacity-50 pointer-events-none"
+                />
+            )}
+
+            {/* The Image (Lazy High-Res) */}
             <Image
                 src={imageUrl}
                 alt="Scan"
                 fill
-                className="object-contain pointer-events-none"
+                className="object-contain pointer-events-none transition-opacity duration-500 opacity-0 data-[loaded=true]:opacity-100"
+                onLoadingComplete={(img) => img.classList.add("data-[loaded=true]:opacity-100")}
                 onLoad={(e) => {
                     const img = e.target as HTMLImageElement;
+                    img.classList.remove("opacity-0");
                     setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
                 }}
             />

@@ -7,6 +7,51 @@ import { uploadCapture } from "@/actions/upload-capture";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
+// Helper to generate thumbnail
+async function generateThumbnail(file: File | Blob): Promise<Blob | null> {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new window.Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    resolve(null);
+                    return;
+                }
+
+                // Max dimension 256px
+                const MAX_SIZE = 256;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    }
+                } else {
+                    if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, "image/jpeg", 0.7);
+            };
+            img.src = e.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 export function CameraCapture() {
     const [isUploading, setIsUploading] = useState(false);
     const [preview, setPreview] = useState<string | null>(null);
@@ -380,6 +425,18 @@ export function CameraCapture() {
         if (location) {
             formData.append("lat", location.lat.toString());
             formData.append("lng", location.lng.toString());
+        }
+
+        // Generate Thumbnail (Client-Side) for Egress Reduction
+        try {
+            const rawFile = croppedImage ? croppedImage : fileInputRef.current.files[0];
+            const thumbBlob = await generateThumbnail(rawFile);
+            if (thumbBlob) {
+                formData.append("thumbnail", thumbBlob, "thumbnail.jpg");
+            }
+        } catch (e) {
+            console.error("Thumbnail generation failed", e);
+            // Proceed without thumbnail (non-critical)
         }
 
         const result = await uploadCapture(formData);

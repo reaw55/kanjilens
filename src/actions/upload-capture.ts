@@ -82,6 +82,7 @@ export async function uploadCapture(formData: FormData) {
         .single();
 
     let publicUrl = "";
+    let thumbnailUrl: string | null = null;
 
     if (existingCapture) {
         console.log("Duplicate image found! Reusing URL.");
@@ -108,6 +109,25 @@ export async function uploadCapture(formData: FormData) {
             .getPublicUrl(fileName);
 
         publicUrl = urlData.publicUrl;
+
+        // 4a. Upload Thumbnail (if provided)
+        const thumbnailFile = formData.get("thumbnail") as File;
+        if (thumbnailFile) {
+            const thumbName = `thumbnails/${user.id}/${uuidv4()}.jpg`;
+            const { error: thumbErr } = await supabase.storage
+                .from("captures")
+                .upload(thumbName, await thumbnailFile.arrayBuffer(), {
+                    contentType: "image/jpeg",
+                    upsert: false
+                });
+
+            if (!thumbErr) {
+                const { data: thumbUrlData } = supabase.storage
+                    .from("captures")
+                    .getPublicUrl(thumbName);
+                if (thumbUrlData) thumbnailUrl = thumbUrlData.publicUrl;
+            }
+        }
     }
 
     // 5. Create Capture Record
@@ -117,6 +137,7 @@ export async function uploadCapture(formData: FormData) {
         .insert({
             user_id: user.id,
             image_url: publicUrl,
+            thumbnail_url: thumbnailUrl, // Save thumbnail
             image_hash: imageHash, // Store hash for future checks
             geo_lat: lat,
             geo_lng: lng
@@ -198,4 +219,43 @@ export async function deleteCapture(captureId: string) {
     revalidatePath("/hunt");
 
     return { success: true };
+}
+
+export async function updateCaptureThumbnail(captureId: string, formData: FormData) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const thumbnailFile = formData.get("thumbnail") as File;
+    if (!thumbnailFile) return { error: "No thumbnail provided" };
+
+    try {
+        const thumbName = `thumbnails/${user.id}/${captureId}.jpg`;
+        const { error: thumbErr } = await supabase.storage
+            .from("captures")
+            .upload(thumbName, await thumbnailFile.arrayBuffer(), {
+                contentType: "image/jpeg",
+                upsert: true
+            });
+
+        if (thumbErr) throw thumbErr;
+
+        const { data: thumbUrlData } = supabase.storage
+            .from("captures")
+            .getPublicUrl(thumbName);
+
+        const { error: dbError } = await supabase
+            .from("captures")
+            .update({ thumbnail_url: thumbUrlData.publicUrl })
+            .eq("id", captureId)
+            .eq("user_id", user.id);
+
+        if (dbError) throw dbError;
+
+        return { success: true, url: thumbUrlData.publicUrl };
+    } catch (e) {
+        console.error("Thumbnail Update Failed", e);
+        return { error: "Failed to update thumbnail" };
+    }
 }

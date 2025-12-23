@@ -164,9 +164,9 @@ export default function MapView({ hideOverlay = false }: { hideOverlay?: boolean
 
                             const imageIcon = L.divIcon({
                                 className: '!bg-transparent !border-0',
-                                html: `<div class="relative w-12 h-12 rounded-full overflow-visible group hover:scale-110 transition-transform">
-                                         <div class="absolute inset-0 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800">
-                                            <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" />
+                                html: `<div class="relative w-12 h-12 rounded-full overflow-visible group hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
+                                         <div class="absolute inset-0 rounded-full overflow-hidden border-2 border-white shadow-xl bg-zinc-800 box-border">
+                                            <img src="${cap.thumbnail_url || cap.image_url}" class="w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover; object-position: center;" />
                                          </div>
                                          ${badgeHtml}
                                        </div>`,
@@ -210,7 +210,7 @@ export default function MapView({ hideOverlay = false }: { hideOverlay?: boolean
                                 const imageIcon = L.divIcon({
                                     className: '!bg-transparent !border-0',
                                     html: `<div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-500 shadow-xl bg-zinc-800 z-10 hover:scale-110 transition-transform" style="width: 48px; height: 48px;">
-                                              <img src="${cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
+                                              <img src="${cap.thumbnail_url || cap.image_url}" class="absolute inset-0 w-full h-full object-cover object-center" style="width: 100%; height: 100%; object-fit: cover;" />
                                                <div class="absolute -top-1 -right-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded-full border border-white">
                                                   ${i + 1}
                                                </div>
@@ -242,14 +242,33 @@ export default function MapView({ hideOverlay = false }: { hideOverlay?: boolean
             {/* Simple Lightbox Modal - Portal to Body to break out of stacking context */}
             {container && selectedCapture && createPortal(
                 <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCapture(null)}>
-                    <div className="relative max-w-lg w-full max-h-[90dvh] overflow-y-auto bg-zinc-900 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 scrollbar-hide" onClick={e => e.stopPropagation()}>
+                    <div
+                        className="relative max-w-lg w-full max-h-[90dvh] overflow-y-auto bg-zinc-900 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 overscroll-contain"
+                        onClick={e => e.stopPropagation()}
+                        onWheel={e => e.stopPropagation()}
+                    >
 
-                        <div className="relative aspect-[3/4] w-full bg-zinc-950">
+                        <div className="relative aspect-[3/4] w-full bg-zinc-950 overflow-hidden group">
+                            {/* Low-Res Thumbnail (Immediate) */}
+                            {selectedCapture.thumbnail_url && (
+                                <img
+                                    src={selectedCapture.thumbnail_url}
+                                    alt="Thumbnail"
+                                    className="absolute inset-0 w-full h-full object-contain blur-sm scale-105 opacity-50"
+                                />
+                            )}
+
+                            {/* High-Res Image (Lazy) */}
                             <Image
                                 src={selectedCapture.image_url}
                                 alt="Capture"
                                 fill
-                                className="object-contain"
+                                className="object-contain transition-opacity duration-500 opacity-0 data-[loaded=true]:opacity-100"
+                                onLoadingComplete={(img) => img.classList.add("data-[loaded=true]:opacity-100")}
+                                onLoad={(e) => {
+                                    const img = e.target as HTMLImageElement;
+                                    img.classList.remove("opacity-0");
+                                }}
                             />
                         </div>
 

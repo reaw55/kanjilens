@@ -70,6 +70,10 @@ export default function ScanPage({
     // Deduplicate words (User Request: "check for duplicate in the word selection too only show one")
     const uniqueWords = Array.from(new Map(filteredWords.map((w: any) => [w.description, w])).values());
 
+    // Extract OCR dimensions to detect rotation
+    const ocrPage = ocrData?.details?.pages?.[0];
+    const ocrDims = ocrPage ? { width: ocrPage.width, height: ocrPage.height } : undefined;
+
     return (
         <div className="min-h-screen bg-zinc-900 text-zinc-50 pb-20">
             {/* Header */}
@@ -82,7 +86,10 @@ export default function ScanPage({
             <div className="relative w-full h-[60vh] bg-zinc-950">
                 <ImageHighlighter
                     imageUrl={capture.image_url}
+                    thumbnailUrl={capture.thumbnail_url}
                     detections={words} // Pass pre-filtered kanji words to optimize
+                    selectedWords={filteredWords}
+                    ocrDimensions={ocrDims}
                     onFilter={(filtered) => setFilteredWords(filtered)}
                 />
 
@@ -102,6 +109,16 @@ export default function ScanPage({
                 <h2 className="text-2xl font-bold mb-2 headline-metallic">Select Words</h2>
 
                 {/* Context Translation */}
+                {(ocrData?.text?.startsWith("Mock Text") || ocrData?.text?.startsWith("Error/Mock")) && (
+                    <div className="mb-4 p-3 bg-red-500/20 border border-red-500 rounded-xl text-red-200 text-xs flex items-center gap-2">
+                        <span className="material-symbols-rounded text-lg">warning</span>
+                        <div>
+                            <strong>Mock Data Detected:</strong> <br />
+                            Google Vision credentials missing. Bounding boxes are fake.
+                        </div>
+                    </div>
+                )}
+
                 {capture.translation && (
                     <div className="mb-6 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800 text-zinc-300 text-sm leading-relaxed">
                         <div className="flex items-center gap-2 mb-2 text-amber-500 font-bold text-xs uppercase tracking-wider">
