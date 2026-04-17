@@ -86,7 +86,7 @@ export default function QuizPage() {
             } else {
                 setCurrentIndex(prev => prev + 1);
             }
-        }, 1500);
+        }, 150);
     };
 
     if (loading) return (
