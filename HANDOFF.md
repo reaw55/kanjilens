@@ -85,3 +85,29 @@ Fixed by this branch unless noted.
 | Medium | Upload type and extension came from the client; 50mb body limit | Magic-byte sniffing, 10 MB cap |
 | Low | Missing security headers; `next/image` allowed `**` remote hosts | Headers added; optimizer off |
 | Low | No-API-key fallback wrote fake "Nihongo" data into real vocab rows | Removed; such words become `needs_input` |
+
+## Update: second pass (end of session)
+
+**Landed and pushed:**
+- **Nav bar:** four equal tabs (Play, Words, Scan, Account). The oversized camera button is gone.
+- **SM-2 scheduling:** `src/lib/srs.ts` (`sm2`, `scheduleReview`, `qualityFromMistakes`) and migration `0002_sm2`, which adds `ease_factor`, `repetitions` and `interval_days` to `vocabulary_items`.
+  - Quality per word: 0 misses → 5, 1 → 3, 2 → 2, 3 or more → 1.
+  - Pass: the interval goes 1 day, 6 days, then the previous interval × the ease factor.
+  - Fail: the word resets to 1 day and its ease factor is unchanged. It also comes back after 10 minutes.
+  - The Supabase import seeds these columns from the old review levels.
+- **Unit tests:** 39 `node:test` tests in `tests/`, run with `npm test` (all pass). CI is in `.github/workflows/ci.yml` (lint, tsc, test, build).
+- **Hardening:**
+  - The icon font is self-hosted (`material-symbols` with `next/font/local`).
+  - Sessions renew while in use (30 days).
+  - "Fill all with AI" button for words that still need a reading and meaning.
+  - `npm audit` reports 0 vulnerabilities, after upgrading `@google-cloud/vision` to 6.x.
+- `public/robots.txt` keeps the `public/` folder for the Docker build and blocks indexing.
+
+**Unfinished when the session ended. Verify these first:**
+1. **Game agent:** SM-2 in `src/actions/review.ts` and `src/components/match-game.tsx`, weak-words mode (`startRound("weak")`), combo indicator, touch-drag fix and test. Commit `54e3207` is a type-checked work-in-progress snapshot.
+   - Check that `submitRound` reads and writes `ease_factor`, `repetitions` and `interval_days`, and sets `srs_level = repetitions`.
+   - Check that the results screen shows "next in N days".
+   - Play a round and confirm the database values change as SM-2 says they should.
+2. **Docker agent:** `docker build` and a `docker compose up` run. Re-run them: build, sign up, upload, restart, and `node scripts/reset-password.mjs` inside the container.
+3. Final checks: `npm run lint && npx tsc --noEmit && npm test && npm run build`, then a Playwright round.
+4. Vision 6 prints a deprecation notice for the `credentials` option in `src/lib/ocr.ts`. Switch to the new auth option.
