@@ -10,6 +10,7 @@ type CountsRow = {
   pending_count: number;
   needs_input_count: number;
   total_count: number;
+  weak_count: number;
 };
 
 export default async function Home() {
@@ -45,9 +46,10 @@ export default async function Home() {
         count(*) FILTER (WHERE playable AND next_review_at <= now())::int   AS due_count,
         count(*) FILTER (WHERE status = 'pending')::int                     AS pending_count,
         count(*) FILTER (WHERE status = 'needs_input')::int                 AS needs_input_count,
-        count(*)::int                                                       AS total_count
+        count(*)::int                                                       AS total_count,
+        count(*) FILTER (WHERE playable AND wrong_count > 0)::int           AS weak_count
        FROM (
-         SELECT status, next_review_at,
+         SELECT status, next_review_at, wrong_count,
                 status = 'ready'
                   AND coalesce(btrim(reading_kana), '') <> ''
                   AND coalesce(btrim(meaning_en), '') <> '' AS playable
@@ -67,6 +69,7 @@ export default async function Home() {
         pendingCount: counts?.pending_count ?? 0,
         needsInputCount: counts?.needs_input_count ?? 0,
         totalCount: counts?.total_count ?? 0,
+        weakCount: counts?.weak_count ?? 0,
       }}
     />
   );

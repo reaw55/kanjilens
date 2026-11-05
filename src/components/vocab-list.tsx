@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { processPendingVocab } from "@/actions/vocab";
+import { processPendingVocab, requestAiFillAll } from "@/actions/vocab";
 import type { VocabItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { VocabDetailModal } from "./vocab-detail-modal";
@@ -73,6 +73,22 @@ export function VocabList({ items, aiEnabled }: { items: VocabItem[]; aiEnabled:
 
     const closeModal = useCallback(() => setSelectedId(null), []);
 
+    const [fillingAll, startFillAll] = useTransition();
+    const [fillAllMessage, setFillAllMessage] = useState<string | null>(null);
+    const fillAll = () => {
+        setFillAllMessage(null);
+        startFillAll(async () => {
+            const res = await requestAiFillAll();
+            setFillAllMessage(res.ok ? (res.message ?? null) : res.error);
+            if (res.ok && (res.added ?? 0) > 0) {
+                // Restart polling in case it had paused; fresh pending items arrive via revalidation.
+                setPollStopped(false);
+                setPollMessage(null);
+                setPollTick((t) => t + 1);
+            }
+        });
+    };
+
     const retryPolling = () => {
         setPollMessage(null);
         setPollStopped(false);
@@ -93,6 +109,7 @@ export function VocabList({ items, aiEnabled }: { items: VocabItem[]; aiEnabled:
     }
 
     const visible = items.filter(FILTERS.find((f) => f.id === filter)!.match);
+    const canFillAll = aiEnabled && filter === "needs_input" && visible.length > 0;
 
     return (
         <>
@@ -144,6 +161,23 @@ export function VocabList({ items, aiEnabled }: { items: VocabItem[]; aiEnabled:
                     );
                 })}
             </div>
+
+            {canFillAll && (
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={fillAll}
+                        disabled={fillingAll}
+                        className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold disabled:opacity-60 transition-colors"
+                    >
+                        <span className="material-symbols-rounded text-lg" aria-hidden>auto_awesome</span>
+                        {fillingAll ? "Queuing…" : "Fill all with AI"}
+                    </button>
+                    {fillAllMessage && (
+                        <span role="status" className="text-sm text-zinc-400">{fillAllMessage}</span>
+                    )}
+                </div>
+            )}
 
             {visible.length === 0 ? (
                 <p className="text-center text-zinc-500 py-12">Nothing here yet.</p>

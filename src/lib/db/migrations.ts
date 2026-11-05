@@ -80,4 +80,21 @@ CREATE TABLE review_rounds (
 CREATE INDEX review_rounds_user_idx ON review_rounds (user_id, created_at DESC);
 `,
     },
+    {
+        id: "0002_sm2",
+        sql: `
+-- SM-2 scheduling state. srs_level is kept and mirrors repetitions (shown as the word's level).
+ALTER TABLE vocabulary_items
+    ADD COLUMN ease_factor   real    NOT NULL DEFAULT 2.5 CHECK (ease_factor >= 1.3),
+    ADD COLUMN repetitions   integer NOT NULL DEFAULT 0   CHECK (repetitions >= 0),
+    ADD COLUMN interval_days integer NOT NULL DEFAULT 0   CHECK (interval_days >= 0);
+
+-- Backfill from the previous fixed ladder (10 min, 1d, 3d, 7d, 14d, 30d, 90d).
+UPDATE vocabulary_items
+   SET repetitions = srs_level,
+       interval_days = CASE srs_level
+           WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 3 WHEN 3 THEN 7
+           WHEN 4 THEN 14 WHEN 5 THEN 30 ELSE 90 END;
+`,
+    },
 ];

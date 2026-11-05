@@ -227,6 +227,38 @@ export async function requestAiFill(id: string): Promise<VocabActionResult> {
     return { ok: true, id, status: "pending" };
 }
 
+/**
+ * Queue every word that's waiting for input (and still missing its reading or meaning)
+ * for AI fill-in. The vocab page's polling loop then processes them within the hourly budget.
+ */
+export async function requestAiFillAll(): Promise<VocabActionResult> {
+    const user = await requireUser();
+    if (!isAiEnabled()) return { ok: false, error: "AI fill-in isn't configured on this server." };
+    const limited = checkAddLimit(user.id);
+    if (limited) return limited;
+
+    const rows = await query<{ id: string }>(
+        `UPDATE vocabulary_items SET status = 'pending', updated_at = now()
+          WHERE id IN (
+                SELECT id FROM vocabulary_items
+                 WHERE user_id = $1 AND status = 'needs_input'
+                   AND (coalesce(btrim(reading_kana), '') = '' OR coalesce(btrim(meaning_en), '') = '')
+                 ORDER BY created_at
+                 LIMIT 200)
+            AND user_id = $1
+          RETURNING id`,
+        [user.id]
+    );
+
+    revalidateVocab();
+    const added = rows.length;
+    return {
+        ok: true,
+        added,
+        message: added === 0 ? "Nothing to fill in." : `Filling in ${added} word${added === 1 ? "" : "s"}…`,
+    };
+}
+
 declare global {
     var __kanjilensVocabProcessing: Set<string> | undefined;
 }

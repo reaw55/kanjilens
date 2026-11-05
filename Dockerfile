@@ -2,8 +2,8 @@ FROM node:24-alpine AS base
 
 # ---- Dependencies -----------------------------------------------------------
 FROM base AS deps
-# https://github.com/nodejs/docker-node#nodealpine explains why libc6-compat may be needed.
-RUN apk add --no-cache libc6-compat
+# No glibc shim needed: every dependency is pure JS or ships a musl build.
+# (libc6-compat no longer exists in Alpine 3.24, the base of node:24-alpine.)
 WORKDIR /app
 
 COPY package.json package-lock.json ./

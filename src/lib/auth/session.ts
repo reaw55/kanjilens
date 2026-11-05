@@ -7,7 +7,17 @@ import { query, queryOne } from "@/lib/db";
 import { SESSION_COOKIE } from "./constants";
 
 export { SESSION_COOKIE };
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Sessions expire after 30 days without use... */
+const SESSION_TTL_MS = 30 * DAY_MS;
+/** ...and are pushed back to 30 days once fewer than 15 remain (so at most every ~15 days per session). */
+const SESSION_RENEW_BELOW_MS = 15 * DAY_MS;
+/**
+ * The cookie itself lives for the browser maximum (~400 days). Server Components can't
+ * set cookies, so the database `expires_at` — which slides on use — is the authoritative
+ * expiry; a cookie for an expired or deleted session simply stops resolving to a user.
+ */
+const COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 
 export type User = {
     id: string;
@@ -51,7 +61,7 @@ export async function createSession(userId: string): Promise<void> {
         sameSite: "lax",
         secure: await shouldUseSecureCookies(),
         path: "/",
-        expires: expiresAt,
+        maxAge: COOKIE_MAX_AGE_SECONDS,
     });
 }
 
@@ -74,17 +84,31 @@ export async function destroyOtherSessions(userId: string): Promise<void> {
     ]);
 }
 
-/** The signed-in user, or null. Memoized per request. */
+/** The signed-in user, or null. Memoized per request. Slides the session expiry when it's getting close. */
 export const getCurrentUser = cache(async (): Promise<User | null> => {
     const token = (await cookies()).get(SESSION_COOKIE)?.value;
     if (!token || token.length > 128) return null;
-    return queryOne<User>(
-        `SELECT u.id, u.email, u.xp, u.streak, to_char(u.last_active_on, 'YYYY-MM-DD') AS last_active_on
+    const sessionId = hashToken(token);
+    const row = await queryOne<User & { expires_at: Date }>(
+        `SELECT u.id, u.email, u.xp, u.streak, to_char(u.last_active_on, 'YYYY-MM-DD') AS last_active_on,
+                s.expires_at
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.id = $1 AND s.expires_at > now()`,
-        [hashToken(token)]
+        [sessionId]
     );
+    if (!row) return null;
+
+    if (row.expires_at.getTime() - Date.now() < SESSION_RENEW_BELOW_MS) {
+        // The WHERE guard makes concurrent requests renew it only once.
+        await query(
+            `UPDATE sessions SET expires_at = now() + make_interval(secs => $2)
+              WHERE id = $1 AND expires_at > now() AND expires_at < now() + make_interval(secs => $3)`,
+            [sessionId, SESSION_TTL_MS / 1000, SESSION_RENEW_BELOW_MS / 1000]
+        ).catch((error) => console.error("Session renewal failed:", error));
+    }
+
+    return { id: row.id, email: row.email, xp: row.xp, streak: row.streak, last_active_on: row.last_active_on };
 });
 
 /** The signed-in user; redirects to /login when there is none. Use in pages and Server Actions. */

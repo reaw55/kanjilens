@@ -12,6 +12,8 @@ const MIN_ROUND_SIZE = 2;
 const ROUND_TTL_MS = 2 * 60 * 60 * 1000;
 const PERFECT_ROUND_BONUS = 10;
 
+export type RoundMode = "review" | "weak";
+
 export type RoundCard = { id: string; kanji: string; reading: string; meaning: string; due: boolean };
 
 export type StartRoundResult =
@@ -25,41 +27,70 @@ export type SubmitRoundResult =
           perfectBonus: number;
           totalXp: number;
           streak: number;
-          results: { id: string; correct: boolean; level: number }[];
+          results: RoundItemResult[];
       }
     | { ok: false; error: string };
 
+export type RoundItemResult = {
+    id: string;
+    /** No wrong drops at all. */
+    correct: boolean;
+    /** SM-2 pass (quality ≥ 3). */
+    passed: boolean;
+    quality: number;
+    /** Mirrors SM-2 repetitions; shown as the word's level. */
+    level: number;
+    intervalDays: number;
+    /** ISO time of the next review, or null when practice left the schedule unchanged. */
+    nextReviewAt: string | null;
+};
+
 type CardRow = { id: string; kanji_word: string; reading_kana: string; meaning_en: string; due: boolean };
 
-/** Deal a new round: due words first, topped up with random practice words. */
-export async function startRound(): Promise<StartRoundResult> {
+/**
+ * Deal a new round.
+ * - "review" (default): due words first, topped up with random practice words.
+ * - "weak": the playable words with the worst record (most misses relative to hits).
+ */
+export async function startRound(mode: RoundMode = "review"): Promise<StartRoundResult> {
     const user = await requireUser();
+    if (mode !== "review" && mode !== "weak") mode = "review";
     if (!rateLimit(`round:${user.id}`, 120, 60 * 60 * 1000).ok) return { ok: false, reason: "rate_limited" };
 
     const playable = `user_id = $1 AND status = 'ready'
         AND reading_kana IS NOT NULL AND btrim(reading_kana) <> ''
         AND meaning_en IS NOT NULL AND btrim(meaning_en) <> ''`;
 
-    const due = await query<CardRow>(
-        `SELECT id, kanji_word, reading_kana, meaning_en, true AS due
-           FROM vocabulary_items
-          WHERE ${playable} AND next_review_at <= now()
-          ORDER BY next_review_at ASC
-          LIMIT $2`,
-        [user.id, ROUND_SIZE]
-    );
-
-    let cards = due;
-    if (cards.length < ROUND_SIZE) {
-        const extra = await query<CardRow>(
-            `SELECT id, kanji_word, reading_kana, meaning_en, false AS due
+    let cards: CardRow[];
+    if (mode === "weak") {
+        cards = await query<CardRow>(
+            `SELECT id, kanji_word, reading_kana, meaning_en, (next_review_at <= now()) AS due
                FROM vocabulary_items
-              WHERE ${playable} AND next_review_at > now()
-              ORDER BY random()
+              WHERE ${playable} AND wrong_count > 0
+              ORDER BY wrong_count - correct_count DESC, ease_factor ASC, srs_level ASC, last_reviewed_at ASC NULLS FIRST
               LIMIT $2`,
-            [user.id, ROUND_SIZE - cards.length]
+            [user.id, ROUND_SIZE]
         );
-        cards = [...cards, ...extra];
+    } else {
+        cards = await query<CardRow>(
+            `SELECT id, kanji_word, reading_kana, meaning_en, true AS due
+               FROM vocabulary_items
+              WHERE ${playable} AND next_review_at <= now()
+              ORDER BY next_review_at ASC
+              LIMIT $2`,
+            [user.id, ROUND_SIZE]
+        );
+        if (cards.length < ROUND_SIZE) {
+            const extra = await query<CardRow>(
+                `SELECT id, kanji_word, reading_kana, meaning_en, false AS due
+                   FROM vocabulary_items
+                  WHERE ${playable} AND next_review_at > now()
+                  ORDER BY random()
+                  LIMIT $2`,
+                [user.id, ROUND_SIZE - cards.length]
+            );
+            cards = [...cards, ...extra];
+        }
     }
 
     if (cards.length < MIN_ROUND_SIZE) {
@@ -119,34 +150,62 @@ export async function submitRound(roundId: string, results: { id: string; mistak
             return { ok: false as const, error: "Results don't match the round." };
         }
 
-        const { rows: items } = await client.query<{ id: string; srs_level: number; next_review_at: Date }>(
-            `SELECT id, srs_level, next_review_at FROM vocabulary_items
+        const { rows: items } = await client.query<{
+            id: string;
+            next_review_at: Date;
+            ease_factor: number;
+            repetitions: number;
+            interval_days: number;
+        }>(
+            `SELECT id, next_review_at, ease_factor, repetitions, interval_days FROM vocabulary_items
               WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE`,
             [user.id, round.item_ids]
         );
 
         let xpGained = 0;
-        const perItem: { id: string; correct: boolean; level: number }[] = [];
+        const perItem: RoundItemResult[] = [];
         for (const item of items) {
-            const correct = (mistakes.get(item.id) ?? 1) === 0;
+            const itemMistakes = mistakes.get(item.id) ?? 1;
+            const correct = itemMistakes === 0;
             const wasDue = item.next_review_at.getTime() <= round.created_at.getTime();
-            const next = scheduleReview({ level: item.srs_level, wasDue, correct });
+            const next = scheduleReview({
+                state: {
+                    repetitions: item.repetitions,
+                    easeFactor: Number(item.ease_factor),
+                    intervalDays: item.interval_days,
+                },
+                wasDue,
+                mistakes: itemMistakes,
+            });
             xpGained += next.xp;
-            perItem.push({ id: item.id, correct, level: next.level });
+            perItem.push({
+                id: item.id,
+                correct,
+                passed: next.passed,
+                quality: next.quality,
+                level: next.state.repetitions,
+                intervalDays: next.state.intervalDays,
+                nextReviewAt: next.nextReviewAt ? next.nextReviewAt.toISOString() : null,
+            });
 
             await client.query(
                 `UPDATE vocabulary_items
-                    SET srs_level = $3,
-                        next_review_at = COALESCE($4, next_review_at),
-                        correct_count = correct_count + $5,
-                        wrong_count = wrong_count + $6,
+                    SET repetitions = $3,
+                        srs_level = $3,
+                        ease_factor = $4,
+                        interval_days = $5,
+                        next_review_at = COALESCE($6, next_review_at),
+                        correct_count = correct_count + $7,
+                        wrong_count = wrong_count + $8,
                         last_reviewed_at = now(),
                         updated_at = now()
                   WHERE id = $1 AND user_id = $2`,
                 [
                     item.id,
                     user.id,
-                    next.level,
+                    next.state.repetitions,
+                    next.state.easeFactor,
+                    next.state.intervalDays,
                     next.nextReviewAt,
                     correct ? 1 : 0,
                     correct ? 0 : 1,

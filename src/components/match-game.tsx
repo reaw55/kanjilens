@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { startRound, submitRound, type RoundCard, type SubmitRoundResult } from "@/actions/review";
+import { startRound, submitRound, type RoundCard, type RoundMode, type SubmitRoundResult } from "@/actions/review";
 import { addStarterDeck, processPendingVocab } from "@/actions/vocab";
 import { BottomNav } from "@/components/bottom-nav";
 import { getLevelProgress } from "@/lib/progress";
@@ -18,6 +18,7 @@ export type GameStats = {
     pendingCount: number;
     needsInputCount: number;
     totalCount: number;
+    weakCount: number;
 };
 
 type Kind = "reading" | "meaning";
@@ -87,6 +88,8 @@ export function MatchGame({ stats }: { stats: GameStats }) {
     const [hoverSlot, setHoverSlot] = useState<SlotId | null>(null);
     const [feedback, setFeedback] = useState<Record<SlotId, Feedback>>({});
     const [announcement, setAnnouncement] = useState("");
+    const [combo, setCombo] = useState(0);
+    const [mode, setMode] = useState<RoundMode>("review");
 
     const [starterPending, startStarter] = useTransition();
     const [starterMessage, setStarterMessage] = useState<string | null>(null);
@@ -105,10 +108,11 @@ export function MatchGame({ stats }: { stats: GameStats }) {
     const progress = getLevelProgress(stats.xp);
     const canPlay = stats.readyCount >= 2;
 
-    async function beginRound() {
+    async function beginRound(nextMode: RoundMode = mode) {
+        setMode(nextMode);
         setPhase({ name: "loading" });
         try {
-            const res = await startRound();
+            const res = await startRound(nextMode);
             if (!res.ok) {
                 setPhase({
                     name: "error",
@@ -124,6 +128,7 @@ export function MatchGame({ stats }: { stats: GameStats }) {
             setMistakes({});
             setSelected(null);
             setFeedback({});
+            setCombo(0);
             setAnnouncement(`New round: ${res.cards.length} kanji. Match each reading and meaning.`);
             setPhase({ name: "playing", roundId: res.roundId, cards: res.cards });
         } catch {
@@ -170,6 +175,7 @@ export function MatchGame({ stats }: { stats: GameStats }) {
         if (tile.text !== expected) {
             const nextMistakes = { ...mistakes, [card.id]: (mistakes[card.id] ?? 0) + 1 };
             setMistakes(nextMistakes);
+            setCombo(0);
             flash(slot, false);
             setAnnouncement(`Not quite. ${tile.text} doesn't go with ${card.kanji}.`);
             return;
@@ -179,7 +185,9 @@ export function MatchGame({ stats }: { stats: GameStats }) {
         setPlaced(nextPlaced);
         setTray((prev) => prev.filter((t) => t.key !== tile.key));
         flash(slot, true);
-        setAnnouncement(`Correct! ${card.kanji}: ${tile.text}.`);
+        const nextCombo = combo + 1;
+        setCombo(nextCombo);
+        setAnnouncement(`Correct! ${card.kanji}: ${tile.text}.${nextCombo >= 2 ? ` ${nextCombo} in a row!` : ""}`);
 
         if (Object.keys(nextPlaced).length === phase.cards.length * 2) {
             // Small pause so the last tile visibly lands before the results screen.
@@ -234,6 +242,17 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                                 style={{ width: `${(filled / (cards.length * 2)) * 100}%` }} />
                         </div>
                     </div>
+                    {combo >= 2 && (
+                        <motion.div
+                            key={combo}
+                            initial={{ scale: 0.6, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300"
+                            aria-hidden
+                        >
+                            ×{combo} combo
+                        </motion.div>
+                    )}
                     <div className={cn("text-xs font-mono px-2 py-1 rounded-full border",
                         totalMistakes ? "border-red-500/30 text-red-300 bg-red-500/10" : "border-zinc-800 text-zinc-500")}>
                         {totalMistakes} miss{totalMistakes === 1 ? "" : "es"}
@@ -397,7 +416,7 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                         </button>
                         <button
                             type="button"
-                            onClick={beginRound}
+                            onClick={() => beginRound()}
                             className="h-12 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors"
                         >
                             Next round
@@ -462,7 +481,7 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                     {canPlay ? (
                         <button
                             type="button"
-                            onClick={beginRound}
+                            onClick={() => beginRound()}
                             disabled={phase.name === "loading"}
                             className="w-full h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-lg flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-colors disabled:opacity-60"
                         >
@@ -473,7 +492,20 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                             )}
                             {stats.dueCount > 0 ? "Start review" : "Practice anyway"}
                         </button>
-                    ) : (
+                    ) : null}
+                    {canPlay && stats.weakCount >= 2 && (
+                        <button
+                            type="button"
+                            onClick={() => beginRound("weak")}
+                            disabled={phase.name === "loading"}
+                            className="w-full h-12 rounded-2xl bg-zinc-800 hover:bg-zinc-700 border border-red-500/20 text-zinc-100 font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
+                        >
+                            <span className="material-symbols-rounded text-red-300" aria-hidden>target</span>
+                            Practice weak words
+                            <span className="text-xs text-zinc-400 font-normal">({stats.weakCount})</span>
+                        </button>
+                    )}
+                    {!canPlay && (
                         <div className="space-y-3">
                             <p className="text-sm text-zinc-300">
                                 You need at least 2 words with a reading and meaning. Start with a starter deck, or add your own.
