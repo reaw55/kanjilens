@@ -104,10 +104,10 @@ Fixed by this branch unless noted.
 - `public/robots.txt` keeps the `public/` folder for the Docker build and blocks indexing.
 
 **Unfinished when the session ended. Verify these first:**
-1. **Game agent:** SM-2 in `src/actions/review.ts` and `src/components/match-game.tsx`, weak-words mode (`startRound("weak")`), combo indicator, touch-drag fix and test. Commit `54e3207` is a type-checked work-in-progress snapshot.
-   - Check that `submitRound` reads and writes `ease_factor`, `repetitions` and `interval_days`, and sets `srs_level = repetitions`.
-   - Check that the results screen shows "next in N days".
-   - Play a round and confirm the database values change as SM-2 says they should.
+1. **Game: done and verified.**
+   - SM-2 is wired through `submitRound`. Database rows after a round: 0 misses → reps 1, EF 2.6, interval 1 day; 1 miss → EF 2.36; 2 misses → reset, due again in 10 minutes.
+   - The weak-words mode, the combo indicator and the results text ("next in N days" / "again in 10 min") all work.
+   - Touch-drag passed 16 checks on an emulated Pixel 7.
 2. **Docker agent:** `docker build` and a `docker compose up` run. Re-run them: build, sign up, upload, restart, and `node scripts/reset-password.mjs` inside the container.
 3. Final checks: `npm run lint && npx tsc --noEmit && npm test && npm run build`, then a Playwright round.
 4. Vision 6 prints a deprecation notice for the `credentials` option in `src/lib/ocr.ts`. Switch to the new auth option.
