@@ -38,7 +38,15 @@ These were running in parallel when time ran out. Check `git log` and `git statu
 - **Infra (landed)**: Dockerfile (node:24-alpine), `docker-compose.yml` (app + postgres:16, `POSTGRES_PASSWORD` required), `.dockerignore`, `.env.example`, the CI workflow without Supabase build args, `scripts/import-supabase.mjs` and `scripts/reset-password.mjs` (both tested against fake Supabase data), `README.md` and `UNRAID_GUIDE.md`.
   - Still unverified: `docker build`. The base images are pulled, so the next session can run `docker compose up --build` directly.
   - Imported photos keep their original EXIF data, including GPS. They are served only to their owner.
-- **E2E agent**: `npm run build`, then a Playwright run against local Postgres (sign up, starter deck, a full round by drag and by tap, results/XP, closed sign-up, open-redirect check). If you don't see a follow-up commit with fixes, run these checks yourself.
+- **Verified on a production build with a fresh Postgres database:**
+  - Game: sign-up, starter deck, a full round by drag and by tap, a wrong drop counted as a miss, XP and streak saved, round marked completed.
+  - Scan: GPS stripped from the stored file, words picked into the deck, deleting a scan removes the photo.
+  - Words: add, duplicate rejected, edit to `ready`, delete, starter deck adds nothing the second time, all filter tabs.
+  - Account: password change (wrong/mismatch/success; the old password stops working), sign out everywhere (the old cookie stops working).
+  - Isolation: a second user gets 404 for the first user's photo and scan page and sees none of their words; signed-out photo requests get 401.
+  - Redirects: signed-out visits to protected pages go to login, sign-up closes after the first account, and a login link pointing at another site stays on the app.
+  - Not tested yet: real Google Vision OCR and OpenAI calls (no keys here), `docker build`, and touch-drag on a real phone.
+  - `npm start` warns about `output: standalone` but works; Docker runs `node server.js`.
 
 ## Next steps
 
