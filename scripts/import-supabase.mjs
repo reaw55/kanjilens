@@ -26,6 +26,8 @@ const WITH_IMAGES = process.argv.includes("--with-images");
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
+/** Interval (days) for each level of the old Supabase app's fixed SRS ladder. */
+const OLD_LEVEL_INTERVAL_DAYS = [0, 0, 1, 3, 7, 30];
 const SOURCES = new Set(["scan", "manual", "starter", "related", "import"]);
 const PLACEHOLDERS = new Set(
     [
@@ -314,12 +316,13 @@ async function main() {
             const sourceCaptureId = v.capture_id ?? junctionByVocab.get(v.id) ?? null;
             const captureId = sourceCaptureId ? captureIdMap.get(sourceCaptureId) ?? null : null;
 
+            const srsLevel = Math.max(0, Math.trunc(Number(v.srs_level) || 0));
             const res = await dst.query(
                 `INSERT INTO vocabulary_items
                     (id, user_id, capture_id, kanji_word, reading_kana, meaning_en,
                      context_sentence_jp, context_sentence_en, detailed_data, status, source,
-                     srs_level, next_review_at, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14)
+                     srs_level, repetitions, interval_days, next_review_at, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $12, $13, $14, $15)
                  ON CONFLICT DO NOTHING`,
                 [
                     v.id,
@@ -333,7 +336,10 @@ async function main() {
                     details ? JSON.stringify(details) : null,
                     status,
                     source,
-                    Math.max(0, Number(v.srs_level) || 0),
+                    srsLevel,
+                    // Seed SM-2 from the old Supabase ladder (0, 10 min, 1d, 3d, 7d, 30d);
+                    // ease_factor starts at the SM-2 default of 2.5.
+                    OLD_LEVEL_INTERVAL_DAYS[Math.min(srsLevel, OLD_LEVEL_INTERVAL_DAYS.length - 1)],
                     v.next_review_at ?? new Date(),
                     v.created_at ?? new Date(),
                 ]
