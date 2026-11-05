@@ -1,0 +1,47 @@
+# KanjiLens: app + PostgreSQL. Usage:
+#   cp .env.example .env   # then set POSTGRES_PASSWORD (and optional API keys)
+#   docker compose up -d
+# The database is only reachable from the app container; it is not published to the host.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kanjilens
+      POSTGRES_DB: kanjilens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanjilens -d kanjilens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: reaw55/kanjilens:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # POSTGRES_PASSWORD is interpolated into a URL: avoid characters like @ : / ? # in it,
+      # or percent-encode them.
+      DATABASE_URL: postgres://kanjilens:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/kanjilens
+      UPLOAD_DIR: /app/data/uploads
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      GOOGLE_VISION_CREDENTIALS_JSON: ${GOOGLE_VISION_CREDENTIALS_JSON:-}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+    volumes:
+      - uploads:/app/data
+
+volumes:
+  db-data:
+  uploads:

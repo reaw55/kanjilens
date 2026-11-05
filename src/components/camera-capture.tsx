@@ -1,494 +1,258 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { Camera, Upload, Loader2, MapPin } from "lucide-react";
-import { uploadCapture } from "@/actions/upload-capture";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { uploadCapture } from "@/actions/capture";
 
-// Helper to generate thumbnail
-async function generateThumbnail(file: File | Blob): Promise<Blob | null> {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new window.Image();
-            img.onload = () => {
-                const canvas = document.createElement("canvas");
-                const ctx = canvas.getContext("2d");
-                if (!ctx) {
-                    resolve(null);
-                    return;
-                }
+type Point = { x: number; y: number };
 
-                // Max dimension 256px
-                const MAX_SIZE = 256;
-                let width = img.width;
-                let height = img.height;
+const MAX_EDGE = 2560;
+const JPEG_QUALITY = 0.9;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
-                if (width > height) {
-                    if (width > MAX_SIZE) {
-                        height *= MAX_SIZE / width;
-                        width = MAX_SIZE;
-                    }
-                } else {
-                    if (height > MAX_SIZE) {
-                        width *= MAX_SIZE / height;
-                        height = MAX_SIZE;
-                    }
-                }
+function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob | null> {
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+}
 
-                canvas.width = width;
-                canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
+/**
+ * Draw `source` (a region of it, optionally clipped to lasso paths) onto a canvas no larger
+ * than MAX_EDGE and export it as JPEG. Browsers apply EXIF orientation when drawing an <img>,
+ * so the result is upright, and canvas output carries no EXIF/GPS metadata.
+ */
+async function renderJpeg(
+    source: HTMLImageElement,
+    region: { x: number; y: number; width: number; height: number },
+    clipPaths?: Point[][]
+): Promise<Blob | null> {
+    const scale = Math.min(1, MAX_EDGE / Math.max(region.width, region.height));
+    const width = Math.max(1, Math.round(region.width * scale));
+    const height = Math.max(1, Math.round(region.height * scale));
 
-                canvas.toBlob((blob) => {
-                    resolve(blob);
-                }, "image/jpeg", 0.7);
-            };
-            img.src = e.target?.result as string;
-        };
-        reader.readAsDataURL(file);
-    });
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, width, height);
+    ctx.scale(scale, scale);
+
+    if (clipPaths && clipPaths.length > 0) {
+        ctx.beginPath();
+        clipPaths.forEach((path) => {
+            if (path.length < 3) return;
+            ctx.moveTo(path[0].x - region.x, path[0].y - region.y);
+            for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x - region.x, path[i].y - region.y);
+            ctx.closePath();
+        });
+        ctx.clip();
+    }
+
+    ctx.drawImage(source, -region.x, -region.y);
+    return canvasToJpeg(canvas);
 }
 
 export function CameraCapture() {
-    const [isUploading, setIsUploading] = useState(false);
-    const [preview, setPreview] = useState<string | null>(null);
-    const [croppedImage, setCroppedImage] = useState<Blob | null>(null);
-    const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-    const [browserLocation, setBrowserLocation] = useState<{ lat: number; lng: number } | null>(null);
+    const router = useRouter();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const imageRef = useRef<HTMLImageElement>(null);
+
+    const [preview, setPreview] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const router = useRouter();
+    // Lasso strokes in display (container) coordinates.
+    const [allPaths, setAllPaths] = useState<Point[][]>([]);
+    const [currentPath, setCurrentPath] = useState<Point[]>([]);
 
-    const triggerCamera = () => {
-        // 1. Try to get current location from Browser immediately
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setBrowserLocation({
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude
-                    });
-                },
-                (err) => {
-                    console.warn("Geolocation permission denied or failed", err);
-                },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-            );
-        }
-        fileInputRef.current?.click();
+    const clearCanvas = () => {
+        const canvas = canvasRef.current;
+        canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
     };
 
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const resetSelection = () => {
+        setAllPaths([]);
+        setCurrentPath([]);
+        clearCanvas();
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const objectUrl = URL.createObjectURL(file);
-            setPreview(objectUrl);
-            setCroppedImage(null);
-            setAllPaths([]); // Reset paths
-            setCurrentPath([]); // Reset temp
-
-            // Clear canvas
-            if (canvasRef.current) {
-                const ctx = canvasRef.current.getContext('2d');
-                ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-            }
-
-            // Default to browser location if available (will be overwritten by EXIF if found)
-            let detectedLocation = browserLocation;
-            setLocation(detectedLocation);
-
-            try {
-                // ... import ExifReader ...
-                const ExifReader = (await import("exifreader")).default;
-                const tags = await ExifReader.load(file);
-
-                // Safe parsing helper
-                if (tags && tags['GPSLatitude'] && tags['GPSLongitude']) {
-                    // ... (keep existing EXIF logic) ...
-                    // Helper to Convert DMS to Decimal
-                    const toDecimal = (gpsTag: any) => {
-                        if (!gpsTag || !gpsTag.value || gpsTag.value.length < 3) return null;
-                        const d = gpsTag.value[0][0] / gpsTag.value[0][1];
-                        const m = gpsTag.value[1][0] / gpsTag.value[1][1];
-                        const s = gpsTag.value[2][0] / gpsTag.value[2][1];
-                        return d + (m / 60) + (s / 3600);
-                    };
-
-                    const lat = toDecimal(tags['GPSLatitude']);
-                    const lng = toDecimal(tags['GPSLongitude']);
-
-                    if (lat !== null && lng !== null) {
-                        let finalLat = lat;
-                        let finalLng = lng;
-
-                        if (tags['GPSLatitudeRef']?.description?.startsWith('S')) finalLat = -lat;
-                        if (tags['GPSLongitudeRef']?.description?.startsWith('W')) finalLng = -lng;
-
-                        // EXIF is authoritative for the IMAGE, so it overrides browser location
-                        detectedLocation = { lat: finalLat, lng: finalLng };
-                        setLocation(detectedLocation);
-                    }
-                }
-            } catch (err) {
-                console.warn("EXIF extraction failed, keeping browser location if any", err);
-            }
-        }
+        if (!file) return;
+        if (preview) URL.revokeObjectURL(preview);
+        setPreview(URL.createObjectURL(file));
+        setError(null);
+        resetSelection();
     };
 
-    // Drawing Logic
-    const startDrawing = (e: React.PointerEvent) => {
-        if (!canvasRef.current || !containerRef.current) return;
+    const retake = () => {
+        if (preview) URL.revokeObjectURL(preview);
+        setPreview(null);
+        setError(null);
+        resetSelection();
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    const pointFrom = (e: React.PointerEvent): Point | null => {
+        if (!containerRef.current) return null;
+        const rect = containerRef.current.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+
+    const startStroke = (e: React.PointerEvent) => {
+        const p = pointFrom(e);
+        const ctx = canvasRef.current?.getContext("2d");
+        if (!p || !ctx) return;
         setIsDrawing(true);
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
-
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
+        setCurrentPath([p]);
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.strokeStyle = '#f59e0b'; // Amber-500
+        ctx.moveTo(p.x, p.y);
+        ctx.strokeStyle = "#f59e0b";
         ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
     };
 
-    const draw = (e: React.PointerEvent) => {
-        if (!isDrawing || !canvasRef.current || !containerRef.current) return;
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
-
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        ctx.lineTo(x, y);
+    const extendStroke = (e: React.PointerEvent) => {
+        if (!isDrawing) return;
+        const p = pointFrom(e);
+        const ctx = canvasRef.current?.getContext("2d");
+        if (!p || !ctx) return;
+        setCurrentPath((prev) => [...prev, p]);
+        ctx.lineTo(p.x, p.y);
         ctx.stroke();
     };
 
-    const stopDrawing = async () => {
+    const endStroke = () => {
+        if (!isDrawing) return;
         setIsDrawing(false);
-        if (!canvasRef.current || !containerRef.current || !preview) return;
-
-        // Calculate Bounding Box of the drawn path (approx based on canvas content)
-        // Actually, it's easier to just track min/max while drawing, but lets scan the canvas pixels
-        // Or simpler: Just upload the WHOLE image but mask it?
-        // No, user wants to focus.
-
-        // Let's implement actual crop:
-        // 1. Get the drawing bounding box.
-        // 2. Map to original image coordinates.
-        // 3. Crop original image.
-
-        // Optimally we'd track points. For now, since we only have the canvas content...
-        // We will just assume if they drew, they want that AREA.
-        // But scanning canvas pixels is slow.
-        // For MVP: Let's just upload the whole image for now, BUT with a special flag? 
-        // No, the requirement is "analyze ONLY the circled kanji".
-        // So we MUST crop.
-
-        // RE-IMPLEMENT DRAWING TO TRACK POINTS
-        // (Since I can't easily scan canvas pixels without tracking)
-    };
-
-    // We need state to track MULTIPLE paths for masking
-    // Array of Arrays of Points (Multi-stroke)
-    const [allPaths, setAllPaths] = useState<{ x: number, y: number }[][]>([]);
-    const [currentPath, setCurrentPath] = useState<{ x: number, y: number }[]>([]);
-
-    const startDrawingTrack = (e: React.PointerEvent) => {
-        setIsDrawing(true);
-        setCurrentPath([]); // Start new stroke
-
-        if (!canvasRef.current || !containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        setCurrentPath([{ x, y }]);
-
-        // We don't clear rect anymore, we redraw everything from state
-        // To be performant, we just draw the NEW line on top of existing canvas?
-        // Yes, until we clear.
-
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.strokeStyle = '#f59e0b';
-            ctx.lineWidth = 4;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-        }
-    };
-
-    const drawTrack = (e: React.PointerEvent) => {
-        if (!isDrawing || !canvasRef.current || !containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Add to current path
-        setCurrentPath(prev => {
-            const next = [...prev, { x, y }];
-            return next;
-        });
-
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-            ctx.lineTo(x, y);
-            ctx.stroke();
-        }
-    };
-
-    const stopDrawingTrack = async () => {
-        setIsDrawing(false);
-        if (currentPath.length > 2) {
-            const newPaths = [...allPaths, currentPath];
-            setAllPaths(newPaths);
-
-            // Trigger masking/cropping update
-            await updateMaskedImage(newPaths);
-        }
+        if (currentPath.length > 2) setAllPaths((prev) => [...prev, currentPath]);
         setCurrentPath([]);
     };
 
-    // Repaint all paths (helper)
-    const redrawCanvas = (paths: { x: number, y: number }[][]) => {
-        if (!canvasRef.current) return;
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
-
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#f59e0b';
-
-        paths.forEach(path => {
-            if (path.length === 0) return;
-            ctx.beginPath();
-            ctx.moveTo(path[0].x, path[0].y);
-            for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
-            ctx.stroke();
-
-            // Optional: Close loop visually?
-            // ctx.closePath(); ctx.stroke();
-        });
-    };
-
-    const updateMaskedImage = async (paths: { x: number, y: number }[][]) => {
-        if (!containerRef.current || !preview || paths.length === 0) return;
-
-        const imgElement = containerRef.current.querySelector('img');
-        if (!imgElement) return;
-
-        // Calculate Geometry
-        const { naturalWidth, naturalHeight, width: displayWidth, height: displayHeight } = imgElement;
+    /** Convert lasso strokes from display coordinates to the image's natural pixel coordinates. */
+    const toNaturalPaths = (img: HTMLImageElement, paths: Point[][]) => {
+        const { naturalWidth, naturalHeight, width: displayWidth, height: displayHeight } = img;
         const imgAspect = naturalWidth / naturalHeight;
         const displayAspect = displayWidth / displayHeight;
 
-        let renderedWidth, renderedHeight, offsetX, offsetY;
-
+        let renderedWidth: number, offsetX: number, offsetY: number;
         if (displayAspect > imgAspect) {
-            renderedHeight = displayHeight;
             renderedWidth = displayHeight * imgAspect;
             offsetX = (displayWidth - renderedWidth) / 2;
             offsetY = 0;
         } else {
             renderedWidth = displayWidth;
-            renderedHeight = displayWidth / imgAspect;
             offsetX = 0;
-            offsetY = (displayHeight - renderedHeight) / 2;
+            offsetY = (displayHeight - displayWidth / imgAspect) / 2;
         }
-
         const scale = naturalWidth / renderedWidth;
-
-        // 1. Determine bounding box of ALL paths (to minimize final image size)
-        // OR just keep original size but mask out white?
-        // To be safe for OCR context, let's keep original size but fill non-selected with WHITE.
-        // Actually, cropping to the "UNION Rect" is better for file size, but "Masking" is critical for "Surrounding Text Removal".
-
-        // Let's do BOTH: Crop to Union Rect, AND Mask inside that rect.
-
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        paths.flat().forEach(p => {
-            // Map to natural coords first
-            const nx = (p.x - offsetX) * scale;
-            const ny = (p.y - offsetY) * scale;
-            minX = Math.min(minX, nx);
-            minY = Math.min(minY, ny);
-            maxX = Math.max(maxX, nx);
-            maxY = Math.max(maxY, ny);
-        });
-
-        // Padding
-        const P = 20 * scale;
-        minX = Math.max(0, minX - P);
-        minY = Math.max(0, minY - P);
-        maxX = Math.min(naturalWidth, maxX + P);
-        maxY = Math.min(naturalHeight, maxY + P);
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-
-        if (width <= 0 || height <= 0) return;
-
-        // Create Canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        // 1. Fill white (Background)
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-
-        // 2. Create Clipping Path from ALL loops
-        // Complex polygons can be tricky. We'll iterate all paths.
-        // We want the UNION of paths.
-        // Canvas `clip()` intersects. To get Union, we can draw the shapes into transparency?
-        // Strategy:
-        // A. Draw white background.
-        // B. Draw the Image into a separate "Source" canvas.
-        // C. Draw the Shapes into a "Mask" canvas (filled black).
-        // D. Composite?
-
-        // Simpler Canvas Strategy for "Show Image Only In Shapes":
-        // 1. Save context.
-        // 2. Define Path (all loops).
-        // 3. Clip.
-        // 4. Draw Image (offset by minX, minY).
-        // 5. Restore.
-        // BUT `clip()` with multiple disjoint paths works as "winding rule" usually?
-        // If they are disjoint, `beginPath -> rect1 -> rect2 -> clip` works as union of holes usually.
-
-        ctx.save();
-        ctx.beginPath();
-        paths.forEach(path => {
-            if (path.length < 3) return;
-            // Map start point
-            const startX = ((path[0].x - offsetX) * scale) - minX;
-            const startY = ((path[0].y - offsetY) * scale) - minY;
-            ctx.moveTo(startX, startY);
-
-            for (let i = 1; i < path.length; i++) {
-                const px = ((path[i].x - offsetX) * scale) - minX;
-                const py = ((path[i].y - offsetY) * scale) - minY;
-                ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-        });
-
-        ctx.clip(); // Everything drawn after this only appears INSIDE the paths
-
-        // Draw the original image shifted by -minX, -minY
-        ctx.drawImage(imgElement, -minX, -minY);
-        ctx.restore();
-
-        canvas.toBlob(blob => {
-            if (blob) setCroppedImage(blob);
-        }, 'image/jpeg', 0.9);
+        return paths.map((path) => path.map((p) => ({ x: (p.x - offsetX) * scale, y: (p.y - offsetY) * scale })));
     };
 
-    const clearCrop = () => {
-        setCroppedImage(null);
-        setAllPaths([]);
-        setCurrentPath([]);
-        if (canvasRef.current) {
-            const ctx = canvasRef.current.getContext('2d');
-            ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    const buildUploadBlob = async (): Promise<Blob | null> => {
+        const img = imageRef.current;
+        if (!img || !img.complete || img.naturalWidth === 0) return null;
+        const full = { x: 0, y: 0, width: img.naturalWidth, height: img.naturalHeight };
+
+        if (allPaths.length === 0) {
+            return renderJpeg(img, full);
         }
+
+        // Crop to the union of the lasso shapes (plus padding) and mask everything else white,
+        // so OCR only sees the circled text.
+        const paths = toNaturalPaths(img, allPaths);
+        const padding = 20 * (img.naturalWidth / img.width);
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        paths.flat().forEach((p) => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+        });
+        minX = Math.max(0, minX - padding);
+        minY = Math.max(0, minY - padding);
+        maxX = Math.min(img.naturalWidth, maxX + padding);
+        maxY = Math.min(img.naturalHeight, maxY + padding);
+        if (maxX <= minX || maxY <= minY) return renderJpeg(img, full);
+
+        return renderJpeg(img, { x: minX, y: minY, width: maxX - minX, height: maxY - minY }, paths);
     };
 
     const handleUpload = async () => {
-        if (!fileInputRef.current?.files?.[0]) return;
-
+        setError(null);
         setIsUploading(true);
-        setIsUploading(true);
-        const formData = new FormData();
-
-        if (croppedImage) {
-            // Use the cropped blob
-            formData.append("file", croppedImage, "crop.jpg");
-        } else {
-            formData.append("file", fileInputRef.current.files[0]);
-        }
-
-        if (location) {
-            formData.append("lat", location.lat.toString());
-            formData.append("lng", location.lng.toString());
-        }
-
-        // Generate Thumbnail (Client-Side) for Egress Reduction
         try {
-            const rawFile = croppedImage ? croppedImage : fileInputRef.current.files[0];
-            const thumbBlob = await generateThumbnail(rawFile);
-            if (thumbBlob) {
-                formData.append("thumbnail", thumbBlob, "thumbnail.jpg");
+            const blob = await buildUploadBlob();
+            if (!blob) {
+                setError("Couldn't read this image. Try a JPEG or PNG photo.");
+                return;
             }
-        } catch (e) {
-            console.error("Thumbnail generation failed", e);
-            // Proceed without thumbnail (non-critical)
-        }
+            if (blob.size > MAX_UPLOAD_BYTES) {
+                setError("Image is too large (max 10 MB).");
+                return;
+            }
 
-        const result = await uploadCapture(formData);
+            const formData = new FormData();
+            formData.append("file", blob, "scan.jpg");
+            const result = await uploadCapture(formData);
 
-        if (result.error) {
-            alert(result.error);
-            setIsUploading(false);
-        } else {
-            // Success! Redirect to the scan result page
+            if ("error" in result) {
+                setError(result.error);
+                return;
+            }
             router.push(`/scan/${result.captureId}`);
-            // We don't need to reset preview here as we are navigating away
+        } catch (e) {
+            console.error("Upload failed", e);
+            setError("Upload failed. Please try again.");
+        } finally {
+            setIsUploading(false);
         }
     };
 
     return (
-        <div className="w-full max-w-md mx-auto p-4 pb-24">
+        <div className="w-full max-w-md mx-auto p-4 pb-8">
             <input
                 type="file"
                 accept="image/*"
-                // capture="environment" // Removed to allow Gallery selection on mobile
                 className="hidden"
                 ref={fileInputRef}
                 onChange={handleFileSelect}
             />
 
             {!preview ? (
-                <div
-                    onClick={triggerCamera}
-                    className="aspect-[4/5] bg-zinc-800 rounded-3xl border-2 border-dashed border-zinc-700 flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-800/80 transition-all group relative overflow-hidden"
+                <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full aspect-[4/5] bg-zinc-800 rounded-3xl border-2 border-dashed border-zinc-700 flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-800/80 transition-all group relative overflow-hidden"
                 >
                     <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <div className="h-20 w-20 rounded-full bg-zinc-900 flex items-center justify-center mb-4 ring-1 ring-zinc-700 group-hover:scale-110 transition-transform">
-                        <Camera className="h-8 w-8 text-amber-500" />
+                        <span className="material-symbols-rounded text-4xl text-amber-500">photo_camera</span>
                     </div>
-                    <p className="text-zinc-400 font-medium">Tap to Scan Kanji</p>
-                    <p className="text-xs text-zinc-600 mt-2">Supports Camera & Gallery</p>
-                </div>
+                    <span className="text-zinc-400 font-medium">Tap to Scan Kanji</span>
+                    <span className="text-xs text-zinc-600 mt-2">Supports Camera & Gallery</span>
+                </button>
             ) : (
-                <div className="space-y-6 reveal-up">
+                <div className="space-y-6">
                     <div
                         ref={containerRef}
-                        className="relative aspect-[3/4] max-w-[280px] mx-auto rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10 touch-none select-none"
-                        onPointerDown={startDrawingTrack}
-                        onPointerMove={drawTrack}
-                        onPointerUp={stopDrawingTrack}
-                        onPointerLeave={stopDrawingTrack}
+                        className="relative aspect-[3/4] max-w-[280px] mx-auto rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10 touch-none select-none bg-zinc-950"
+                        onPointerDown={startStroke}
+                        onPointerMove={extendStroke}
+                        onPointerUp={endStroke}
+                        onPointerLeave={endStroke}
                     >
-                        <Image
+                        {/* eslint-disable-next-line @next/next/no-img-element -- local blob preview */}
+                        <img
+                            ref={imageRef}
                             src={preview}
                             alt="Preview"
-                            fill
-                            className="object-contain img-optimized pointer-events-none"
+                            className="absolute inset-0 w-full h-full object-contain img-optimized pointer-events-none"
                             onLoad={() => {
                                 if (canvasRef.current && containerRef.current) {
                                     canvasRef.current.width = containerRef.current.clientWidth;
@@ -496,42 +260,39 @@ export function CameraCapture() {
                                 }
                             }}
                         />
-                        <canvas
-                            ref={canvasRef}
-                            className="absolute inset-0 z-10"
-                        />
+                        <canvas ref={canvasRef} className="absolute inset-0 z-10" />
 
-                        {croppedImage && (
+                        {allPaths.length > 0 ? (
                             <div className="absolute top-4 right-4 z-20">
-                                <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); clearCrop(); }}>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        resetSelection();
+                                    }}
+                                >
                                     Reset Selection
                                 </Button>
                             </div>
-                        )}
-
-                        {!croppedImage && (
-                            <div className="absolute bottom-16 left-0 right-0 text-center text-xs text-amber-500/80 pointer-events-none">
-                                Draw to circle Kanji
+                        ) : (
+                            <div className="absolute bottom-4 left-0 right-0 text-center text-xs text-amber-500/80 pointer-events-none">
+                                Draw to circle Kanji (optional)
                             </div>
                         )}
-
-                        {/* Location Badge */}
-                        <div className={`absolute bottom-4 left-4 right-4 p-3 rounded-xl backdrop-blur-md transition-all ${location ? 'bg-zinc-900/80 text-zinc-200' : 'bg-red-500/20 text-red-200'} pointer-events-none`}>
-                            <div className="flex items-center gap-2 text-xs font-medium">
-                                <MapPin className="h-4 w-4" />
-                                {location ? (
-                                    <span>Location Tagged</span>
-                                ) : (
-                                    <span>Locating...</span>
-                                )}
-                            </div>
-                        </div>
                     </div>
+
+                    {error && (
+                        <div role="alert" className="p-3 text-sm text-red-400 bg-red-500/10 rounded-lg text-center">
+                            {error}
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-3">
                         <Button
                             variant="outline"
-                            onClick={() => setPreview(null)}
+                            onClick={retake}
                             className="h-12 rounded-xl border-zinc-700 hover:bg-zinc-800 text-zinc-300"
                             disabled={isUploading}
                         >
@@ -544,12 +305,12 @@ export function CameraCapture() {
                         >
                             {isUploading ? (
                                 <>
-                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                    <span className="material-symbols-rounded animate-spin mr-1">progress_activity</span>
                                     Processing...
                                 </>
                             ) : (
                                 <>
-                                    <Upload className="mr-2 h-5 w-5" />
+                                    <span className="material-symbols-rounded mr-1">upload</span>
                                     Analyze
                                 </>
                             )}
