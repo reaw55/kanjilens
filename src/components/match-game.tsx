@@ -651,8 +651,7 @@ function DemoRow() {
         <div className="grid grid-cols-[auto_1fr_1.3fr] gap-2 p-2 rounded-2xl border border-zinc-800 bg-zinc-950/50" aria-hidden>
             <div lang="ja" className="min-w-[3.5rem] px-2 rounded-xl bg-zinc-900 flex items-center justify-center text-3xl font-bold">水</div>
             <div className="min-h-[3.5rem] rounded-xl bg-zinc-900/80 px-2.5 flex items-center text-sm font-semibold text-amber-300">みず</div>
-            <div className="min-h-[3.5rem] rounded-xl border-2 border-dashed border-amber-500/60 px-2.5 flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-widest text-zinc-600">meaning</span>
+            <div className="min-h-[3.5rem] rounded-xl border-2 border-dashed border-amber-500/60 bg-amber-500/10 px-2.5 flex items-center justify-center">
                 <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/40 text-sky-100 text-xs font-semibold -rotate-6 shadow-lg">water</span>
             </div>
         </div>
