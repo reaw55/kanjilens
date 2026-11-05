@@ -8,7 +8,7 @@ Pick up from here next session. See `HANDOFF.md` for the background.
 
 ## Verify before merging
 - [ ] `npm ci && npm run lint && npx tsc --noEmit && npm test && npm run build`
-- [ ] `docker build .` and `docker compose up` with a `.env` that sets `POSTGRES_PASSWORD`. Then check sign-up, scan upload, `docker compose restart app` (uploads persist) and `docker compose exec app node scripts/reset-password.mjs`.
+- [x] `docker build .` and `docker compose up` with a `.env` that sets `POSTGRES_PASSWORD`. Then check sign-up, scan upload, `docker compose restart app` (uploads persist) and `docker compose exec app node scripts/reset-password.mjs`.
 - [ ] Playwright run on the final build: a full round by drag and by tap, results show "next in N days", the database has SM-2 values (`repetitions`, `ease_factor`, `interval_days`).
 - [ ] Run a real Supabase import (`scripts/import-supabase.mjs --with-images`) into a test database, then log in with an old password.
 - [ ] Test with real API keys: Google Vision OCR on a photo of a sign, and OpenAI fill-in for scanned words.
@@ -22,4 +22,5 @@ Pick up from here next session. See `HANDOFF.md` for the background.
 - [ ] Imported photos keep their original EXIF/GPS. Consider stripping it during import (and re-hashing).
 - [ ] The icon font is 5.4 MB. Consider subsetting it to the icons the app actually uses.
 - [ ] Game ideas: a timed mode, reverse mode (reading → kanji), and a per-word history chart on the word detail popup.
+- [ ] Shrink the Docker image (346 MB): add `outputFileTracingExcludes` in `next.config.ts` so the standalone build stops copying `src/`, `tests/` and `package-lock.json` (caused by the runtime path in `src/lib/storage.ts`).
 - [ ] Update screenshots in `README.md` for the new game-first UI.
