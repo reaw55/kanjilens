@@ -46,7 +46,9 @@ export function sm2(state: Sm2State, quality: number): Sm2State & { passed: bool
 
     const nextInterval =
         repetitions === 0 ? 1 : repetitions === 1 ? 6 : Math.round(intervalDays * easeFactor);
-    const nextEase = Math.max(MIN_EASE, easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
+    const delta = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02);
+    // SM-2's EF deltas are exact to 2 decimals; rounding keeps floating-point drift out of the DB.
+    const nextEase = Math.max(MIN_EASE, Math.round((easeFactor + delta) * 100) / 100);
 
     return { repetitions: repetitions + 1, easeFactor: nextEase, intervalDays: nextInterval, passed: true };
 }
@@ -69,7 +71,8 @@ export function scheduleReview(opts: {
     const relearnAt = new Date(now.getTime() + RELEARN_MINUTES * 60_000);
 
     if (!opts.wasDue && quality >= 3) {
-        return { state: { ...opts.state }, nextReviewAt: null, quality, passed: true, xp: 2 };
+        const { repetitions, easeFactor, intervalDays } = opts.state;
+        return { state: { repetitions, easeFactor, intervalDays }, nextReviewAt: null, quality, passed: true, xp: 2 };
     }
 
     const { passed, ...state } = sm2(opts.state, quality);

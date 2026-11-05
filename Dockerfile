@@ -18,7 +18,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # No build-time secrets: all configuration (DATABASE_URL, API keys, ...) is read at runtime.
-RUN npm run build
+# public/ may be absent from a clean checkout (git doesn't track empty dirs); the runner copies it.
+RUN mkdir -p public && npm run build
 
 # ---- Runtime ----------------------------------------------------------------
 FROM base AS runner

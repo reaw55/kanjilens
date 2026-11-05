@@ -4,7 +4,15 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { startRound, submitRound, type RoundCard, type RoundMode, type SubmitRoundResult } from "@/actions/review";
+import {
+    startRound,
+    submitRound,
+    type RoundCard,
+    type RoundItemResult,
+    type RoundMode,
+    type SubmitRoundResult,
+} from "@/actions/review";
+import { RELEARN_MINUTES } from "@/lib/srs";
 import { addStarterDeck, processPendingVocab } from "@/actions/vocab";
 import { BottomNav } from "@/components/bottom-nav";
 import { getLevelProgress } from "@/lib/progress";
@@ -35,6 +43,14 @@ type Phase =
     | { name: "error"; message: string };
 
 const slotId = (cardId: string, kind: Kind): SlotId => `${cardId}:${kind}`;
+
+/** Human-readable SM-2 outcome for the results screen. */
+function describeNextReview(r: RoundItemResult | undefined): string {
+    if (!r) return "";
+    if (!r.nextReviewAt) return "practice · schedule kept";
+    if (!r.passed) return `again in ${RELEARN_MINUTES} min`;
+    return r.intervalDays === 1 ? "next in 1 day" : `next in ${r.intervalDays} days`;
+}
 
 function shuffle<T>(items: T[]): T[] {
     const a = [...items];
@@ -393,13 +409,19 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                                         <div className="text-zinc-300 text-sm truncate">{card.meaning}</div>
                                     </div>
                                     <div className="text-right">
-                                        <span className={cn("material-symbols-rounded", correct ? "text-emerald-400" : "text-red-400")} aria-hidden>
-                                            {correct ? "check_circle" : "replay"}
+                                        <span
+                                            className={cn(
+                                                "material-symbols-rounded",
+                                                correct ? "text-emerald-400" : r?.passed ? "text-amber-400" : "text-red-400"
+                                            )}
+                                            aria-hidden
+                                        >
+                                            {correct ? "check_circle" : r?.passed ? "check" : "replay"}
                                         </span>
-                                        <div className="text-[10px] text-zinc-500">
-                                            {correct ? `Lv ${r?.level ?? 0}` : `${phase.mistakes[card.id] ?? 0} miss`}
-                                        </div>
-                                        <span className="sr-only">{correct ? "Correct first try" : "Missed; will come back soon"}</span>
+                                        <div className="text-[10px] text-zinc-500 whitespace-nowrap">{describeNextReview(r)}</div>
+                                        <span className="sr-only">
+                                            {correct ? "Correct first try." : `${phase.mistakes[card.id] ?? 0} wrong drops.`}
+                                        </span>
                                     </div>
                                 </li>
                             );
@@ -458,7 +480,7 @@ export function MatchGame({ stats }: { stats: GameStats }) {
                     <div>
                         <h1 className="text-2xl font-bold">Match the kanji</h1>
                         <p className="text-zinc-400 text-sm mt-1">
-                            Drag each reading and meaning onto the right kanji. First-try matches move up your review schedule.
+                            Drag each reading and meaning onto the right kanji. Clean matches push the next review further out (SM-2 spacing).
                         </p>
                     </div>
 
