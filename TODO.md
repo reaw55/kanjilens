@@ -2,15 +2,18 @@
 
 Pick up from here next session. See `HANDOFF.md` for the background.
 
+To take this live, follow `DEPLOY_RUNBOOK.md`. It is written for a Claude Code session that can reach the
+server and Supabase, and it covers the urgent items below, the data import, the cutover and the merge.
+
 ## Urgent: live Supabase deployment
 - [ ] Remove or rotate `SUPABASE_SERVICE_ROLE_KEY` on the current deployment. The old `/fix-thumbnails` admin actions have no auth check.
 - [ ] Make the Supabase `captures` storage bucket private.
 
 ## Verify before merging
-- [ ] `npm ci && npm run lint && npx tsc --noEmit && npm test && npm run build`
+- [x] `npm ci && npm run lint && npx tsc --noEmit && npm test && npm run build` (CI passed on the branch)
 - [x] `docker build .` and `docker compose up` with a `.env` that sets `POSTGRES_PASSWORD`. Then check sign-up, scan upload, `docker compose restart app` (uploads persist) and `docker compose exec app node scripts/reset-password.mjs`.
 - [ ] Playwright run on the final build: a full round by drag and by tap, results show "next in N days", the database has SM-2 values (`repetitions`, `ease_factor`, `interval_days`).
-- [ ] Run a real Supabase import (`scripts/import-supabase.mjs --with-images`) into a test database, then log in with an old password.
+- [ ] Run a real Supabase import (`scripts/import-supabase.mjs --with-images`) into a test database, then log in with an old password. (Re-tested against a fake Supabase schema with the SM-2 columns; the real project is still untested.)
 - [ ] Test with real API keys: Google Vision OCR on a photo of a sign, and OpenAI fill-in for scanned words.
 - [ ] Try touch-drag on a real phone (only emulated so far).
 - [ ] Open a PR, let CI (`.github/workflows/ci.yml`) pass, then merge.
