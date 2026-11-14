@@ -4,7 +4,12 @@
  *
  *   SUPABASE_DB_URL=postgres://...supabase... \
  *   DATABASE_URL=postgres://kanjilens:...@localhost:5432/kanjilens \
- *   node scripts/import-supabase.mjs [--with-images]
+ *   node scripts/import-supabase.mjs [--with-images] [--dry-run]
+ *
+ *   --with-images  Also download every capture photo and its OCR data.
+ *   --dry-run      Do everything (read Supabase, convert, download photos if asked), print the
+ *                  summary, then roll the transaction back and delete the downloaded files.
+ *                  Nothing is kept. Use it to rehearse against the real Supabase project.
  *
  * Optional:
  *   SUPABASE_SSL_CA=/path/to/supabase-ca.crt  Verify the Supabase TLS certificate with this CA
@@ -19,10 +24,20 @@
  */
 import pg from "pg";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const WITH_IMAGES = process.argv.includes("--with-images");
+const KNOWN_FLAGS = new Set(["--with-images", "--dry-run"]);
+const ARGS = process.argv.slice(2);
+// Refuse anything unrecognized: a mistyped --dry-run must not turn into a real import.
+const unknownArgs = ARGS.filter((a) => !KNOWN_FLAGS.has(a));
+if (unknownArgs.length > 0) {
+    console.error(`Unknown argument(s): ${unknownArgs.join(" ")}`);
+    console.error("Usage: node scripts/import-supabase.mjs [--with-images] [--dry-run]");
+    process.exit(2);
+}
+const WITH_IMAGES = ARGS.includes("--with-images");
+const DRY_RUN = ARGS.includes("--dry-run");
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
@@ -142,6 +157,13 @@ async function download(url) {
         chunks.push(chunk);
     }
     return Buffer.concat(chunks);
+}
+
+/** Delete photos written by this run, and their per-user folders if that leaves them empty. */
+async function removeWrittenFiles(files) {
+    await Promise.all(files.map((f) => unlink(f).catch(() => {})));
+    const dirs = new Set(files.map((f) => path.dirname(f)));
+    await Promise.all([...dirs].map((d) => rmdir(d).catch(() => {})));
 }
 
 async function tableExists(client, name) {
@@ -360,17 +382,26 @@ async function main() {
             }
         }
 
-        await dst.query("COMMIT");
+        if (DRY_RUN) {
+            await dst.query("ROLLBACK");
+            await removeWrittenFiles(writtenFiles);
+        } else {
+            await dst.query("COMMIT");
+        }
     } catch (error) {
         await dst.query("ROLLBACK").catch(() => {});
-        await Promise.all(writtenFiles.map((f) => unlink(f).catch(() => {})));
+        await removeWrittenFiles(writtenFiles);
         throw error;
     } finally {
         await dst.end();
     }
 
     // ---- Report ---------------------------------------------------------------
-    console.log("\nImport complete");
+    if (DRY_RUN) {
+        console.log("\nDry run complete. Nothing was written; this is what a real run would do:");
+    } else {
+        console.log("\nImport complete");
+    }
     console.log(`  Users:      ${summary.usersImported} imported, ${summary.usersAlreadyPresent} already present`);
     if (summary.usersSkipped.length) {
         console.log(`  Skipped ${summary.usersSkipped.length} user(s) that cannot sign in with a password:`);
@@ -394,11 +425,15 @@ async function main() {
             console.log(`  ${summary.capturesFailed.length} photo(s) could not be downloaded:`);
             for (const f of summary.capturesFailed.slice(0, 50)) console.log(`    - ${f}`);
         }
-        console.log(`  Photos are stored in ${uploadDir}`);
+        console.log(DRY_RUN ? `  Photos would be stored in ${uploadDir}` : `  Photos are stored in ${uploadDir}`);
     } else {
         console.log("  Photos:     not imported (re-run with --with-images to copy scans and their OCR data)");
     }
-    console.log("\nUsers sign in with their existing email and password.");
+    if (DRY_RUN) {
+        console.log("\nRe-run without --dry-run to import.");
+    } else {
+        console.log("\nUsers sign in with their existing email and password.");
+    }
 }
 
 main().catch((error) => {

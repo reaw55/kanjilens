@@ -1,0 +1,20 @@
+# Copy to docker-compose.override.yml in the repository root (it is git-ignored).
+# docker compose reads it automatically on top of docker-compose.yml.
+
+services:
+  app:
+    # Run the image you built from the branch instead of the published one.
+    # Build it first:  docker build -t kanjilens:next .
+    # Remove this line (or the whole file) once reaw55/kanjilens:latest is the new version.
+    image: kanjilens:next
+
+  # Optional, for Unraid: keep the data in appdata folders instead of Docker-managed volumes.
+  # Uncomment both blocks together. The uploads folder must be owned by UID 1001:
+  #   mkdir -p /mnt/user/appdata/kanjilens/uploads && chown 1001:1001 /mnt/user/appdata/kanjilens/uploads
+  #
+  #   volumes:
+  #     - /mnt/user/appdata/kanjilens/uploads:/app/data
+  #
+  # db:
+  #   volumes:
+  #     - /mnt/user/appdata/kanjilens/db:/var/lib/postgresql/data

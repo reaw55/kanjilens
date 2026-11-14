@@ -43,3 +43,7 @@ next-env.d.ts
 
 # local data (Postgres dumps, uploaded photos)
 /data
+
+# deployment: local overrides and the deployment log (may name hosts and paths)
+/docker-compose.override.yml
+/deploy/state.local.md
