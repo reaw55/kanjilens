@@ -12,7 +12,8 @@ import { createSession, destroyOtherSessions, destroySession, requireUser } from
 import { formatRetry, getClientIp, rateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { safeRedirectPath } from "@/lib/validation";
 
-export type FormState = { error?: string; success?: string } | undefined;
+/** `email` echoes what was typed so the form can keep it after a failed attempt. */
+export type FormState = { error?: string; success?: string; email?: string } | undefined;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
@@ -25,6 +26,12 @@ function readEmail(formData: FormData): string | null {
     return email.length <= 254 && EMAIL_RE.test(email) ? email : null;
 }
 
+/** What the user typed in the email field, as-is (bounded), for redisplay only. */
+function typedEmail(formData: FormData): string {
+    const raw = formData.get("email");
+    return typeof raw === "string" ? raw.trim().slice(0, 254) : "";
+}
+
 function readPassword(formData: FormData, field = "password"): string {
     const raw = formData.get(field);
     return typeof raw === "string" ? raw : "";
@@ -33,14 +40,14 @@ function readPassword(formData: FormData, field = "password"): string {
 export async function signIn(_prev: FormState, formData: FormData): Promise<FormState> {
     const email = readEmail(formData);
     const password = readPassword(formData);
-    if (!email || !password) return { error: "Enter your email and password." };
+    if (!email || !password) return { error: "Enter your email and password.", email: typedEmail(formData) };
 
     const ip = await getClientIp();
     const byIp = rateLimit(`login:ip:${ip}`, 30, FIFTEEN_MINUTES);
     const byEmail = rateLimit(`login:email:${email}`, 10, FIFTEEN_MINUTES);
     if (!byIp.ok || !byEmail.ok) {
         const wait = Math.max(byIp.retryAfterMs, byEmail.retryAfterMs);
-        return { error: `Too many sign-in attempts. Try again in ${formatRetry(wait)}.` };
+        return { error: `Too many sign-in attempts. Try again in ${formatRetry(wait)}.`, email: typedEmail(formData) };
     }
 
     const user = await queryOne<{ id: string; password_hash: string }>(
@@ -49,11 +56,11 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
     );
     if (!user) {
         await verifyAgainstDummy(password);
-        return { error: "Invalid email or password." };
+        return { error: "Invalid email or password.", email: typedEmail(formData) };
     }
 
     const { ok, needsRehash } = await verifyPassword(password, user.password_hash);
-    if (!ok) return { error: "Invalid email or password." };
+    if (!ok) return { error: "Invalid email or password.", email: typedEmail(formData) };
 
     if (needsRehash) {
         await query("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2", [
@@ -70,14 +77,14 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
 export async function signUp(_prev: FormState, formData: FormData): Promise<FormState> {
     const email = readEmail(formData);
     const password = readPassword(formData);
-    if (!email) return { error: "Enter a valid email address." };
+    if (!email) return { error: "Enter a valid email address.", email: typedEmail(formData) };
     const policyError = validatePasswordPolicy(password);
-    if (policyError) return { error: policyError };
-    if (password !== readPassword(formData, "confirmPassword")) return { error: "Passwords do not match." };
+    if (policyError) return { error: policyError, email: typedEmail(formData) };
+    if (password !== readPassword(formData, "confirmPassword")) return { error: "Passwords do not match.", email: typedEmail(formData) };
 
     const ip = await getClientIp();
     const limit = rateLimit(`signup:ip:${ip}`, 5, ONE_HOUR);
-    if (!limit.ok) return { error: `Too many sign-up attempts. Try again in ${formatRetry(limit.retryAfterMs)}.` };
+    if (!limit.ok) return { error: `Too many sign-up attempts. Try again in ${formatRetry(limit.retryAfterMs)}.`, email: typedEmail(formData) };
 
     const passwordHash = await hashPassword(password);
     const allowAnyone = (process.env.ALLOW_SIGNUP ?? "").toLowerCase() === "true";
@@ -98,8 +105,8 @@ export async function signUp(_prev: FormState, formData: FormData): Promise<Form
         return { id: rows[0]?.id ?? null };
     });
 
-    if ("closed" in result) return { error: "Sign-up is closed on this server. Ask the admin for an account." };
-    if (!result.id) return { error: "Could not create an account with that email." };
+    if ("closed" in result) return { error: "Sign-up is closed on this server. Ask the admin for an account.", email: typedEmail(formData) };
+    if (!result.id) return { error: "Could not create an account with that email.", email: typedEmail(formData) };
 
     await createSession(result.id);
     redirect("/");

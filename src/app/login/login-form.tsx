@@ -13,6 +13,9 @@ export function LoginForm({ next, signupOpen }: { next: string; signupOpen: bool
     const isSignUp = mode === "signup";
     const pending = signingIn || signingUp;
     const error = isSignUp ? signUpState?.error : signInState?.error;
+    // React clears the form after each submit; giving the field the last typed email as its
+    // default keeps it filled in after a failed attempt.
+    const lastEmail = (isSignUp ? signUpState?.email : signInState?.email) ?? "";
 
     return (
         <div className="w-full max-w-md space-y-8 relative z-10 p-8 rounded-2xl bg-zinc-800/50 ring-1 ring-white/5 backdrop-blur-xl">
@@ -40,6 +43,7 @@ export function LoginForm({ next, signupOpen }: { next: string; signupOpen: bool
                         autoComplete="email"
                         placeholder="Email"
                         className="input-premium h-11"
+                        defaultValue={lastEmail}
                         required
                         disabled={pending}
                     />
