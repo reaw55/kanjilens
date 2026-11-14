@@ -4,6 +4,8 @@ Pick up from here next session. See `HANDOFF.md` for the background.
 
 To take this live, follow `DEPLOY_RUNBOOK.md`. It is written for a Claude Code session that can reach the
 server and Supabase, and it covers the urgent items below, the data import, the cutover and the merge.
+In Claude Code, the `deploy-live` skill starts it. The scripts it uses are in `deploy/` (see
+`deploy/README.md`), and `CLAUDE.md` has the project notes.
 
 ## Urgent: live Supabase deployment
 - [ ] Remove or rotate `SUPABASE_SERVICE_ROLE_KEY` on the current deployment. The old `/fix-thumbnails` admin actions have no auth check.

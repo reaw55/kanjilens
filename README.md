@@ -140,7 +140,8 @@ user to keep costs predictable.
 ## Migrating from the Supabase version
 
 Earlier versions of KanjiLens ran on Supabase. `scripts/import-supabase.mjs` copies your data into the
-self-hosted database:
+self-hosted database. For moving a live deployment over with a rollback path, follow
+`DEPLOY_RUNBOOK.md`; the helper scripts it uses are in `deploy/`.
 
 - **Users** keep their email and existing password. Supabase's bcrypt hashes are accepted and upgraded to
   scrypt on next login. Accounts without a password (e.g. Google sign-in only) are listed and skipped;
@@ -164,7 +165,9 @@ Steps:
    docker compose cp supabase-ca.crt app:/app/data/supabase-ca.crt
    ```
 
-3. Run the import inside the app container, where `DATABASE_URL` and `UPLOAD_DIR` are already set:
+3. Run the import inside the app container, where `DATABASE_URL` and `UPLOAD_DIR` are already set.
+   Add `--dry-run` first to rehearse it: that does everything, prints the summary, then rolls back and
+   deletes what it downloaded.
 
    ```bash
    docker compose exec -e SUPABASE_DB_URL='postgres://...' -e SUPABASE_SSL_CA=/app/data/supabase-ca.crt app node scripts/import-supabase.mjs --with-images

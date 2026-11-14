@@ -8,8 +8,12 @@ Supabase or any hosting dashboard, so nothing below about the real infrastructur
 exists to find out. If what you find doesn't match this document, stop and tell the owner; don't force
 the plan onto a setup it wasn't written for.
 
-Read this whole file first, then `README.md` (Quick start, Configuration, Migrating from the Supabase
-version), `UNRAID_GUIDE.md` and `.env.example`. `HANDOFF.md` has the background on what changed and why.
+Read this whole file first, then `deploy/README.md` (the scripts this plan uses), `README.md` (Quick
+start, Configuration, Migrating from the Supabase version), `UNRAID_GUIDE.md` and `.env.example`.
+`HANDOFF.md` has the background on what changed and why.
+
+Keep a log as you go: copy `deploy/state.example.md` to `deploy/state.local.md` (git-ignored) and fill it
+in. If that file already exists, an earlier session started this work; read it before anything else.
 
 ## Goal
 
@@ -43,8 +47,8 @@ Done means:
 
 Why the order of the phases matters: the new image cannot work with the old container's settings,
 because it needs `DATABASE_URL` and a database behind it. If the old container is recreated or
-auto-updated after a new `latest` is published, the live site goes down. So the new stack is built next to the old one, checked, and only
-then does traffic move and the branch merge.
+auto-updated after a new `latest` is published, the live site goes down. So the new stack is built next
+to the old one, checked, and only then does traffic move and the branch merge.
 
 ## Working rules
 
@@ -57,7 +61,9 @@ then does traffic move and the branch merge.
   - deleting anything (containers, images, volumes, the Supabase project, a Vercel project)
 - **Secrets stay out of sight.** Don't print them, paste them into chat, commit them, or put them in a
   pull request. Read existing values from where they already live and write them only into the server's
-  `.env` file or container settings. When you inspect a container, list variable names, not values.
+  `.env` file or container settings. Use `deploy/discover.sh`, `deploy/make-env.sh` and
+  `deploy/verify.sh` for this: they show variable names only. A bare `docker inspect`, `docker compose
+  config` or `cat .env` prints every value into the conversation, so don't run those on these containers.
 - **Keep the old deployment intact** until the owner says to remove it. Stop it; don't delete it.
 - **Dashboard-only steps:** if you have no tool for a Supabase, Unraid or Cloudflare setting, give the
   owner the exact place to click and wait for them to confirm it's done.
@@ -66,12 +72,23 @@ then does traffic move and the branch merge.
 
 ## Phase 0: find out what is running (read-only)
 
-Answer these and report them to the owner with your proposed plan before changing anything.
+Start with the two read-only scripts, on the server (or piped over SSH, see `deploy/README.md`):
 
-1. **Where does the live app run?** On the server: `docker ps`, then `docker inspect` on the KanjiLens
-   container for its image, published port, restart policy and the names of its environment variables.
-   Also check whether a Vercel project is connected to `reaw55/kanjilens` (the old docs described a Vercel
-   deployment). It may be one, the other, or both.
+```bash
+deploy/preflight.sh --port 3001
+```
+
+```bash
+deploy/discover.sh
+```
+
+Together they answer most of the questions below. Answer the rest by hand, then report everything to
+the owner with your proposed plan before changing anything.
+
+1. **Where does the live app run?** `discover.sh` lists each KanjiLens container with its image,
+   published port, restart policy and the names of its environment variables. If it finds none, pass
+   the container name to it. Also check whether a Vercel project is connected to `reaw55/kanjilens`
+   (the old docs described a Vercel deployment). It may be one, the other, or both.
 2. **Is `SUPABASE_SERVICE_ROLE_KEY` set** in the container, in Vercel, or anywhere else the old app reads
    its environment?
 3. **Does anything auto-update the container?** Watchtower, Unraid's "CA Auto Update Applications"
@@ -83,13 +100,16 @@ Answer these and report them to the owner with your proposed plan before changin
 6. **Can the server build an image** (git plus `docker build`)? If not, build on your machine and move
    it over with `docker save kanjilens:next | ssh <server> docker load`.
 7. **Supabase:** can you get the database connection string (dashboard → Connect)? The direct host is
-   IPv6-only; use the Session pooler string if the server has no IPv6. Record row counts for comparison
-   later:
+   IPv6-only; use the Session pooler string if the server has no IPv6 (`preflight.sh` says which).
+   Record the row counts for comparison later, and check the columns the import needs, with the
+   read-only `deploy/supabase-baseline.sql`:
 
-   ```sql
-   select (select count(*) from auth.users where deleted_at is null) as users,
-          (select count(*) from public.vocabulary_items) as words,
-          (select count(*) from public.captures) as captures;
+   ```bash
+   read -rs SUPABASE_DB_URL
+   ```
+
+   ```bash
+   docker run --rm -i -e U="$SUPABASE_DB_URL" postgres:16-alpine sh -c 'psql "$U" -X -f -' < deploy/supabase-baseline.sql
    ```
 
 8. **Which optional keys does the old deployment have** (`OPENAI_API_KEY`,
@@ -132,59 +152,80 @@ These are safe for the old app and don't wait for the migration.
    cd kanjilens-next && docker build -t kanjilens:next .
    ```
 
-3. **Create `.env`** from `.env.example` in that folder:
-   - `POSTGRES_PASSWORD`: generate one with `openssl rand -hex 32` (hex avoids the characters that break
-     the connection URL).
-   - `APP_PORT`: a free port that is not the old app's, for example `3001`.
-   - `ALLOW_SIGNUP=false`.
-   - The optional keys from Phase 0.
-4. **Start it.** With Compose, add an untracked `docker-compose.override.yml` so the local build is used
-   and the `latest` tag stays alone, then bring it up:
+3. **Create `.env`** in that folder with the script. It generates the database password, sets a port
+   that is not the old app's, keeps sign-up closed, and copies the optional keys from the old container
+   without showing them:
 
-   ```yaml
-   services:
-     app:
-       image: kanjilens:next
+   ```bash
+   deploy/make-env.sh --port 3001 --from-container <old container name>
+   ```
+
+4. **Start it.** With Compose, copy the override so the local build is used and the `latest` tag stays
+   alone, then bring it up. The same file has commented lines for keeping data in Unraid appdata folders.
+
+   ```bash
+   cp deploy/docker-compose.override.example.yml docker-compose.override.yml
    ```
 
    ```bash
    docker compose up -d
    ```
 
-   Without Compose, follow `UNRAID_GUIDE.md` sections 1 to 3 with Repository `kanjilens:next` and the new
-   host port. If photos fail to save on a bind-mounted folder, the folder needs to belong to UID 1001.
-5. **Check it:**
-   - both containers are healthy (`docker compose ps`)
-   - the app log shows migrations `0001_initial` and `0002_sm2` applied
-   - `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/login` prints `200`
+   Without Compose, use the script that does the same with plain `docker run` (it names the containers
+   `kanjilens-app` and `kanjilens-db`), or have the owner follow `UNRAID_GUIDE.md` sections 1 to 3 in the
+   Unraid UI with Repository `kanjilens:next` and the new host port. Ask which they prefer: containers
+   made by the script show up in Unraid's Docker tab but can't be edited there.
+
+   ```bash
+   deploy/up-plain-docker.sh --appdata /mnt/user/appdata/kanjilens
+   ```
+
+5. **Check it.** This covers container health, the migrations, signed-out redirects, security headers,
+   the settings (names only) and whether the app can write photos. It should end with `0 failed`:
+
+   ```bash
+   deploy/verify.sh
+   ```
 6. **Don't create an account in the new app yet.** The import brings the owner's account over with its
    original ID. An account created first with the same email blocks that, and the import then skips
    that user's words.
 
 ## Phase 3: import the data and check it
 
-1. **Run the import** inside the app container, where `DATABASE_URL` and `UPLOAD_DIR` are already set.
-   Read the Supabase connection string into a variable so it stays out of shell history:
+1. **Rehearse, then run the import** inside the app container, where `DATABASE_URL` and `UPLOAD_DIR` are
+   already set. Read the Supabase connection string into a variable so it stays out of shell history
+   (skip this if it is still set from Phase 0):
 
    ```bash
    read -rs SUPABASE_DB_URL
    ```
 
+   First a dry run. It reads Supabase, converts everything and downloads the photos, prints the same
+   summary as a real run, then rolls back and deletes what it downloaded:
+
+   ```bash
+   docker compose exec -e SUPABASE_DB_URL="$SUPABASE_DB_URL" app node scripts/import-supabase.mjs --with-images --dry-run
+   ```
+
+   Show the owner the summary. When it looks right, run it for real:
+
    ```bash
    docker compose exec -e SUPABASE_DB_URL="$SUPABASE_DB_URL" app node scripts/import-supabase.mjs --with-images
    ```
 
-   The README explains the optional TLS certificate check (`SUPABASE_SSL_CA`). The import only reads
-   from Supabase, writes in one transaction, and can be re-run.
+   Without Compose, replace `docker compose exec ... app` with `docker exec ... kanjilens-app`. The README
+   explains the optional TLS certificate check (`SUPABASE_SSL_CA`). The import only reads from Supabase,
+   writes in one transaction, and can be re-run.
 2. **Read its summary** and report it:
    - users imported, and any skipped (accounts with no password, such as Google-only sign-in)
    - email conflicts, which should be none
    - words imported, and how many need a reading and meaning
    - photos imported, and any that failed, with the reason given
-3. **Compare with the Phase 0 counts:**
+3. **Compare with the Phase 0 counts.** Pass the numbers the import reported; the script fails if the
+   database disagrees, and also checks that the photo files on disk match the photo rows:
 
    ```bash
-   docker compose exec db psql -U kanjilens -d kanjilens -c "select (select count(*) from users) users, (select count(*) from vocabulary_items) words, (select count(*) from captures) captures"
+   deploy/verify.sh --expect-users <n> --expect-words <n> --expect-captures <n>
    ```
 
 4. **Check the app with the owner** at the new port. Only they know their password.
@@ -202,7 +243,12 @@ These are safe for the old app and don't wait for the migration.
      "needs input" can be queued together with "Fill all with AI" on the Words page.
    - Drag tiles with a finger on a real phone.
 
+The scripts in `deploy/` and the import (dry run and real) were tested end to end on a Linux Docker
+host against a stand-in for the Supabase database, including signing in with an imported password.
+
 **Never tried against the real thing, so watch these closely:**
+
+- Unraid itself. The scripts use only bash, Docker and curl, but have not run there.
 
 - The import has only run against a hand-made copy of the Supabase schema. If it stops on a missing
   table or column, report the exact error.
@@ -222,7 +268,8 @@ Get the owner's go-ahead for the cutover as a whole, then:
 2. **Stop the old container.** Don't remove it.
 3. **Point traffic at the new app.** Either change the tunnel or proxy target to the new port, or set
    `APP_PORT` to the old port and run `docker compose up -d`.
-4. **Check through the public address:** login works over HTTPS, a round saves, a photo loads.
+4. **Check through the public address:** run `deploy/verify.sh --url https://<public host>`, then have
+   the owner confirm login works over HTTPS, a round saves, and a photo loads.
    - If login fails only through the public address and the app log says the Server Actions request is
      invalid, the proxy is rewriting the `Host` header. Fix the proxy so it passes the public host
      (`Host` or `X-Forwarded-Host`). Loosening the app's origin check is a code change and needs the
@@ -232,8 +279,9 @@ Get the owner's go-ahead for the cutover as a whole, then:
 
 ## Phase 5: merge and publish
 
-1. Open a pull request from `claude/adoring-ramanujan-1l1wa7` into `main`. Wait for the CI workflow to
-   pass.
+1. Open a pull request from `claude/adoring-ramanujan-1l1wa7` into `main`. `deploy/PR_BODY.md` is a draft
+   description with the command to use it; update its "Deployment status" list first. Wait for the CI
+   workflow to pass.
 2. With the owner's yes, merge it.
 3. Watch the "Docker Build & Push" run on `main`. This is the first run of the edited workflow. If it
    fails, the live site is unaffected because it runs the local build; fix the workflow on a new branch.
@@ -243,6 +291,8 @@ Get the owner's go-ahead for the cutover as a whole, then:
    docker compose pull app && docker compose up -d
    ```
 
+   (without Compose: `docker pull reaw55/kanjilens:latest`, then
+   `deploy/up-plain-docker.sh --image reaw55/kanjilens:latest --recreate-app` with the same `--appdata`)
    and repeat the checks from Phase 4 step 4. Pinning to the `sha-<commit>` tag instead of `latest`
    gives the owner control over when updates land; offer that choice.
 5. Leave auto-update off unless the owner asks for it back.
@@ -255,8 +305,13 @@ has used the new app for a while.
 1. **Make the `captures` bucket private** (Storage → the bucket → turn off Public). Nothing depends on
    it once the old app is stopped. Rolling back to the old app after this means making it public again.
 2. **Rotate the service-role key** if it was ever set anywhere.
-3. **Set up backups** as in `UNRAID_GUIDE.md` section 6: a scheduled `pg_dump` and a copy of the uploads
-   folder. Take one dump now and confirm it lists tables with `pg_restore -l`.
+3. **Set up backups.** `deploy/backup.sh` dumps the database, archives the photos, checks both can be
+   read back and prunes old files. Run it once now, then schedule it daily (cron, or Unraid's User
+   Scripts plugin). `deploy/README.md` has the restore steps.
+
+   ```bash
+   deploy/backup.sh --dir /mnt/user/backups/kanjilens --keep-days 14
+   ```
 4. **Retire the old pieces:** pause or delete the Supabase project, remove the old container and the
    `supabase-legacy` image, delete the unused GitHub secrets `NEXT_PUBLIC_SUPABASE_URL` and
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and remove any Vercel project.
@@ -276,6 +331,7 @@ the new database and does not flow back.
 
 ## What to report
 
-After each phase, tell the owner what you did, the evidence (counts, status codes, log lines, never
-secret values), anything that differed from this runbook, and what comes next. At the end, tick the
-finished items in `TODO.md` and add anything new you found, through a pull request.
+After each phase, update `deploy/state.local.md`, then tell the owner what you did, the evidence
+(counts, status codes, log lines, never secret values), anything that differed from this runbook, and
+what comes next. At the end, tick the finished items in `TODO.md` and add anything new you found,
+through a pull request.

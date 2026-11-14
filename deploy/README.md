@@ -52,6 +52,18 @@ deploy/preflight.sh --port 3001
 deploy/discover.sh
 ```
 
+Look at the old Supabase database (read-only; a throwaway container supplies `psql`):
+
+```bash
+read -rs SUPABASE_DB_URL
+```
+
+```bash
+docker run --rm -i -e U="$SUPABASE_DB_URL" postgres:16-alpine sh -c 'psql "$U" -X -f -' < deploy/supabase-baseline.sql
+```
+
+Create the settings file, copying the optional API keys from the old container:
+
 ```bash
 deploy/make-env.sh --port 3001 --from-container <old container name>
 ```
@@ -80,10 +92,6 @@ deploy/verify.sh
 
 Rehearse the import, read its summary, then run it for real (Compose shown; without Compose use
 `docker exec -e SUPABASE_DB_URL="$SUPABASE_DB_URL" kanjilens-app node ...`):
-
-```bash
-read -rs SUPABASE_DB_URL
-```
 
 ```bash
 docker compose exec -e SUPABASE_DB_URL="$SUPABASE_DB_URL" app node scripts/import-supabase.mjs --with-images --dry-run
@@ -139,5 +147,20 @@ the archive into the uploads folder on the host (then `chown -R 1001:1001` it), 
 ## How this kit was tested
 
 On a Linux host with Docker 29 and Compose 5, against a real two-container stack and a stand-in for
-the Supabase database. Not tested on Unraid itself, against a real Supabase project, or over SSH.
-If a script misbehaves on the real server, report what it printed rather than working around it.
+the old setup: a fake "old" container carrying marked secrets, and a database shaped like the Supabase
+one, with photos served over HTTP.
+
+- `discover.sh` and `make-env.sh`: none of the marked secret values appeared in their output. A
+  service-account JSON containing `$`, `#`, `=` and `\n` reached the app intact through both Docker
+  Compose and `up-plain-docker.sh`.
+- `verify.sh`: passed on a fresh stack and after the import, and failed when given a wrong expected count.
+- Import: dry run wrote nothing and removed its downloads; the real run brought over the user, words
+  and photos; signing in with the old password worked and upgraded the stored hash.
+- `backup.sh` and the restore steps above: data was deleted, restored, and matched again.
+- `up-plain-docker.sh`: first run, repeat run, and `--recreate-app` with data on bind mounts surviving.
+- `preflight.sh` and `discover.sh` also ran piped through `bash -s`, as they would over SSH.
+
+Not tested: Unraid itself, a real Supabase project, a real SSH hop, or the image built by
+`docker build .` from the repository Dockerfile (the test image used the same final stage, filled from
+a local build; the Dockerfile itself was built and run in an earlier check). If a script misbehaves
+on the real server, report what it printed instead of working around it.

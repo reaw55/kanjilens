@@ -1,10 +1,10 @@
 -- Read-only look at the old Supabase database before the import (DEPLOY_RUNBOOK.md, Phase 0).
--- Run it against the SUPABASE database, for example through the new stack's db container:
+-- Run it against the SUPABASE database. A throwaway container supplies psql, so nothing needs
+-- to be installed and the new stack does not have to exist yet:
 --
 --   read -rs SUPABASE_DB_URL
---   docker compose exec -T -e U="$SUPABASE_DB_URL" db sh -c 'psql "$U" -X -f -' < deploy/supabase-baseline.sql
+--   docker run --rm -i -e U="$SUPABASE_DB_URL" postgres:16-alpine sh -c 'psql "$U" -X -f -' < deploy/supabase-baseline.sql
 --
--- (without Compose: docker exec -i -e U="$SUPABASE_DB_URL" kanjilens-db sh -c 'psql "$U" -X -f -' < ...)
 -- It changes nothing. Keep the counts to compare with deploy/verify.sh --expect-* after the import.
 
 \echo '== Row counts =='
